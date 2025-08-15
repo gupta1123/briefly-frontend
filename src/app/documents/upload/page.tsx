@@ -1,0 +1,943 @@
+"use client";
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import AppLayout from '@/components/layout/app-layout';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArrowLeft, Check, UploadCloud, X } from 'lucide-react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+ 
+import type { Document, StoredDocument } from '@/lib/types';
+import type { ExtractDocumentMetadataOutput } from '@/ai/flows/extract-document-metadata';
+import { useToast } from '@/hooks/use-toast';
+import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { H1 } from '@/components/typography';
+import { PageHeader } from '@/components/page-header';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select';
+// Calls will be proxied via backend: sign upload, finalize, analyze
+import { apiFetch, getApiContext } from '@/lib/api';
+import { useDocuments } from '@/hooks/use-documents';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
+import { computeContentHash } from '@/lib/utils';
+
+const toDataUri = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+type Extracted = {
+  ocrText: string;
+  metadata: ExtractDocumentMetadataOutput;
+};
+
+export default function UploadPage() {
+  const [files, setFiles] = useState<File[]>([]);
+  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string }[]>([]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [carouselMode, setCarouselMode] = useState<boolean>(true);
+  const [dragOver, setDragOver] = useState<boolean>(false);
+  const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+  const { addDocument, documents, linkAsNewVersion } = useDocuments();
+  const router = useRouter();
+  const [form, setForm] = useState({
+    title: '',
+    filename: '',
+    sender: '',
+    receiver: '',
+    documentDate: '',
+    documentType: 'General Document',
+    folder: 'No folder (Root)',
+    subject: '',
+    description: '',
+    category: 'General',
+    keywords: '',
+    tags: '',
+  });
+  const [docType, setDocType] = useState<Document['type']>('PDF');
+  const [extracted, setExtracted] = useState<Extracted | null>(null);
+  const { folders, createFolder } = useDocuments();
+  const { hasRoleAtLeast } = useAuth();
+  const [folderPath, setFolderPath] = useState<string[]>([]);
+  const searchParams = useSearchParams();
+  
+  useEffect(() => {
+    const p = searchParams?.get('path');
+    if (p && p.trim()) {
+      const pathArray = p.split('/').filter(Boolean);
+      setFolderPath(pathArray);
+      console.log('Upload page initialized with folder path:', pathArray);
+    } else {
+      setFolderPath([]);
+      console.log('Upload page initialized in root folder');
+    }
+  }, [searchParams]);
+
+  const onSelect = async (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (arr.length === 0) return;
+    
+    // Push to queue with initial state; compute hashes to dedupe
+    const entries = await Promise.all(arr.map(async (f) => ({
+      file: f,
+      progress: 0,
+      status: 'idle' as const,
+      hash: await computeContentHash(f),
+      previewUrl: URL.createObjectURL(f),
+      rotation: 0,
+      linkMode: 'new' as const,
+    })));
+    
+    // Check for duplicates in both queue and existing documents
+    const queueHashes = new Set(queue.map(q => q.hash).filter(Boolean));
+    const docHashes = new Set(documents.map(d => d.contentHash).filter(Boolean));
+    
+    const deduped = entries.filter(e => {
+      if (!e.hash) return true; // Allow files without hash
+      if (queueHashes.has(e.hash)) {
+        console.log('Skipping duplicate in queue:', e.file.name, 'hash:', e.hash);
+        return false;
+      }
+      if (docHashes.has(e.hash)) {
+        console.log('File already exists in documents:', e.file.name, 'hash:', e.hash);
+        return false;
+      }
+      return true;
+    });
+    
+    const skippedCount = entries.length - deduped.length;
+    if (skippedCount > 0) {
+      toast({ 
+        title: `Skipped ${skippedCount} duplicate${skippedCount > 1 ? 's' : ''}`, 
+        description: skippedCount > 1 ? 'Some files already exist' : 'File already exists',
+      });
+    }
+    
+    setQueue(prev => [...prev, ...deduped]);
+  };
+
+  const onBrowse = () => inputRef.current?.click();
+
+  const onDrop: React.DragEventHandler<HTMLDivElement> = async (e) => {
+    e.preventDefault();
+    const list = e.dataTransfer.files;
+    if (list && list.length) onSelect(list);
+  };
+
+  const processItem = async (index: number) => {
+    const item = queue[index];
+    if (!item || item.locked || item.status === 'processing' || item.status === 'uploading' || item.status === 'success' || item.status === 'ready') return;
+    // lock row to avoid duplicate processing
+    setQueue(prev => prev.map((q, i) => i === index ? { ...q, locked: true } : q));
+    setActiveIndex(index);
+    // infer type
+    const ext = item.file.name.split('.').pop()?.toLowerCase();
+    let inferred: Document['type'] = 'PDF';
+    if (['png', 'jpg', 'jpeg'].includes(ext || '')) inferred = 'Image';
+    else if (['doc', 'docx'].includes(ext || '')) inferred = 'Word';
+    setDocType(inferred);
+
+    // simulate upload progress while reading
+    setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'uploading', progress: 10 } : q));
+    const timer = setInterval(() => setQueue(prev => prev.map((q, i) => i === index ? { ...q, progress: Math.min(q.progress + 8, 90) } : q)), 150);
+    try {
+      let dataUri: string;
+      const isImage = ['png','jpg','jpeg'].includes(ext || '');
+      if (isImage && (item.rotation || 0) % 360 !== 0) {
+        dataUri = await rotateImageFileToDataUri(item.file, item.rotation || 0);
+      } else {
+        dataUri = await toDataUri(item.file);
+      }
+      clearInterval(timer);
+      setQueue(prev => prev.map((q, i) => i === index ? { ...q, progress: 100, status: 'processing' } : q));
+
+      // 1) Sign upload to Supabase Storage
+      const orgId = getApiContext().orgId || '';
+      const signResp = await apiFetch<{ url: string; storageKey: string }>(`/orgs/${orgId}/uploads/sign`, {
+        method: 'POST',
+        body: { filename: item.file.name, mimeType: item.file.type || 'application/octet-stream' },
+      });
+      await uploadToSignedUrl(signResp.url, item.file);
+
+      // 2) Finalize DB row if already created, else we will create on Save
+      // We'll only store file location on Save to avoid orphan rows in case user cancels
+
+      // 3) Ask backend AI to analyze from signed Storage URL
+      const analyzeResp = await apiFetch<{ ocrText: string; metadata: any }>(`/orgs/${orgId}/uploads/analyze`, {
+        method: 'POST',
+        body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
+      });
+      const ocrResult = { extractedText: analyzeResp.ocrText } as any;
+      const metadataResult = analyzeResp.metadata as any;
+
+      // Ensure summary length target ~300 words
+      const normalizedSummary = (() => {
+        const s = (metadataResult.summary || '').trim();
+        const words = s.split(/\s+/).filter(Boolean);
+        if (words.length >= 240 && words.length <= 380) return s;
+        // If too short, pad with OCR text context; if too long, truncate.
+        if (words.length < 240) {
+          const extra = (ocrResult.extractedText || '').split(/\s+/).filter(Boolean).slice(0, 400 - words.length).join(' ');
+          return `${s}${extra ? '\n\n' + extra : ''}`.trim();
+        }
+        return words.slice(0, 340).join(' ');
+      })();
+
+      // Prefill form for the active item
+      const updatedForm = {
+        title: metadataResult.title || item.file.name,
+        filename: metadataResult.filename || item.file.name,
+        sender: metadataResult.sender || '',
+        receiver: metadataResult.receiver || '',
+        documentDate: metadataResult.documentDate || '',
+        documentType: metadataResult.documentType || 'General Document',
+        folder: 'No folder (Root)',
+        subject: metadataResult.subject || '',
+        description: metadataResult.description || metadataResult.summary || '',
+        category: metadataResult.category || 'General',
+        keywords: (metadataResult.keywords || []).join(', '),
+        tags: (metadataResult.tags || []).join(', '),
+      };
+
+      // Store multiple options for UI selection
+      const senderOptions = metadataResult.senderOptions || [];
+      const receiverOptions = metadataResult.receiverOptions || [];
+      console.log('Extracted sender options:', senderOptions, 'receiver options:', receiverOptions);
+
+      // Find version candidates (same hash or similar name)
+      const candidates = findVersionCandidates(item.hash, item.file.name, documents, folderPath)
+        .map(d => ({ 
+          id: d.id, 
+          label: `${d.title || d.name || 'Untitled'} (v${d.versionNumber || d.version || 1})` 
+        }));
+      
+      console.log('Found version candidates:', candidates.length, 'for file:', item.file.name, 'in folder:', folderPath);
+      
+      setQueue(prev => prev.map((q, i) => i === index ? { 
+        ...q, 
+        status: 'ready', 
+        extracted: { ocrText: ocrResult.extractedText, metadata: metadataResult }, 
+        form: updatedForm, 
+        locked: false, 
+        candidates, 
+        senderOptions,
+        receiverOptions,
+        linkMode: candidates.length > 0 ? 'version' : 'new', 
+        baseId: candidates[0]?.id, 
+        storageKey: signResp.storageKey 
+      } : q));
+      toast({ title: 'Processed', description: `${item.file.name} analyzed by AI.` });
+    } catch (e) {
+      clearInterval(timer);
+      setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'error', note: 'Processing failed', locked: false } : q));
+      toast({ title: 'Processing failed', description: `${item.file.name} failed`, variant: 'destructive' });
+    }
+  };
+
+  async function rotateImageFileToDataUri(file: File, rotationDeg: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const radians = (rotationDeg % 360) * Math.PI / 180;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(toDataUri(file)); return; }
+        const w = img.width;
+        const h = img.height;
+        const sin = Math.abs(Math.sin(radians));
+        const cos = Math.abs(Math.cos(radians));
+        canvas.width = Math.floor(w * cos + h * sin);
+        canvas.height = Math.floor(w * sin + h * cos);
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(radians);
+        ctx.drawImage(img, -w / 2, -h / 2);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function findVersionCandidates(hash: string | undefined, filename: string, all: StoredDocument[], currentPath: string[]): StoredDocument[] {
+    const byHash = hash ? all.filter(d => d.contentHash === hash) : [];
+    if (byHash.length) return byHash;
+    // Fallback heuristic: same base name (strip timestamps) and same folder
+    const base = filename.toLowerCase().replace(/\s+/g, ' ').replace(/\d{4}-\d{2}-\d{2}.*/,'').trim();
+    return all.filter(d => {
+      const docPath = (d.folderPath || []).join('/');
+      const currentPathStr = currentPath.join('/');
+      const docName = (d.filename || d.name || '').toLowerCase();
+      return docPath === currentPathStr && docName.includes(base);
+    });
+  }
+
+  async function uploadToSignedUrl(signedUrl: string, file: File) {
+    await fetch(signedUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+  }
+
+  // Ensure we have a focused item when entering queue view or when items change
+  useEffect(() => {
+    if (queue.length > 0 && (activeIndex === null || activeIndex >= queue.length)) {
+      setActiveIndex(0);
+    }
+    if (queue.length === 0) setActiveIndex(null);
+  }, [queue.length]);
+
+  const readyCount = useMemo(() => queue.filter(q => q.status === 'ready').length, [queue]);
+  const hasSuccess = useMemo(() => queue.some(q => q.status === 'success'), [queue]);
+  const hasProcessable = useMemo(() => queue.some(q => q.status === 'idle' || q.status === 'error'), [queue]);
+  const hasExistingDocs = useMemo(() => documents.length > 0, [documents.length]);
+
+  const onReset = () => {
+    setQueue([]);
+    setActiveIndex(null);
+    setExtracted(null);
+    setForm({
+      title: '', filename: '', sender: '', receiver: '', documentDate: '', documentType: 'General Document', folder: 'No folder (Root)', subject: '', description: '', category: 'General', keywords: '', tags: '',
+    });
+    inputRef.current && (inputRef.current.value = '');
+  };
+
+  const onDone = async (index: number, skipNavigation = false) => {
+    const item = queue[index];
+    if (!item || !item.extracted || !item.form || item.status === 'success') return;
+    
+    try {
+    // Normalize summary length to ~300 words to ensure consistency
+    const normalizedSummary = (() => {
+      const s = (item.extracted.metadata.summary || '').trim();
+      const words = s.split(/\s+/).filter(Boolean);
+      if (words.length >= 240 && words.length <= 380) return s;
+      if (words.length < 240) {
+        const extra = (item.extracted.ocrText || '').split(/\s+/).filter(Boolean).slice(0, 400 - words.length).join(' ');
+        return `${s}${extra ? '\n\n' + extra : ''}`.trim();
+      }
+      return words.slice(0, 340).join(' ');
+    })();
+    const keywordsArray = form.keywords
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
+    const tagsArray = form.tags
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+
+    const newDoc: StoredDocument = {
+      id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: (form.title || item.extracted.metadata.title || item.file.name),
+      type: docType,
+      uploadedAt: new Date(),
+      version: 1,
+      keywords: (keywordsArray.length ? keywordsArray : (item.extracted.metadata.keywords || [])).filter(Boolean),
+      summary: normalizedSummary,
+      content: item.extracted.ocrText,
+      title: form.title || item.extracted.metadata.title || item.file.name,
+      filename: form.filename || item.file.name,
+      sender: form.sender || item.extracted.metadata.sender,
+      receiver: form.receiver || item.extracted.metadata.receiver,
+      documentDate: form.documentDate || item.extracted.metadata.documentDate,
+      documentType: form.documentType || item.extracted.metadata.documentType,
+      folder: 'root',
+      folderPath,
+      subject: form.subject || item.extracted.metadata.subject || (item.extracted.metadata.title || ''),
+      description: form.description || item.extracted.metadata.description || normalizedSummary,
+      category: form.category || item.extracted.metadata.category,
+      tags: (tagsArray.length ? tagsArray : (item.extracted.metadata.tags || [])).filter(Boolean),
+      contentHash: item.hash,
+    };
+    
+    console.log('Creating document with folderPath:', folderPath, 'Type:', typeof folderPath, 'Is Array:', Array.isArray(folderPath));
+    console.log('newDoc.folderPath:', newDoc.folderPath, 'Type:', typeof newDoc.folderPath, 'Is Array:', Array.isArray(newDoc.folderPath));
+    
+    // Ensure nested folders exist - create each level sequentially
+    try {
+      for (let i = 0; i < folderPath.length; i++) {
+        const slice = folderPath.slice(0, i + 1);
+        const parentPath = slice.slice(0, -1);
+        const folderName = slice[slice.length - 1];
+        
+        // Check if folder already exists before creating
+        const existing = folders.find(f => JSON.stringify(f) === JSON.stringify(slice));
+        if (!existing) {
+          await createFolder(parentPath, folderName);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to create folder structure:', error);
+      // Continue with document creation even if folder creation fails
+    }
+    // Link choice
+    // Basic required fields enforcement
+    if (!newDoc.title || !newDoc.subject || (newDoc.tags || []).length === 0 || (newDoc.keywords || []).length === 0) {
+      toast({ title: 'Missing required fields', description: 'Title, subject, keywords, and tags are required. Please fill them before saving.', variant: 'destructive' });
+      return;
+    }
+
+    if (item.linkMode === 'version' && item.baseId) {
+      linkAsNewVersion(item.baseId, newDoc as any);
+    } else {
+      const created = await addDocument(newDoc);
+      // Finalize file info for created row
+      try {
+        const orgId = getApiContext().orgId || '';
+        await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
+          method: 'POST',
+          body: {
+            documentId: created.id,
+            storageKey: item.storageKey,
+            fileSizeBytes: item.file.size,
+            mimeType: item.file.type || 'application/octet-stream',
+            contentHash: item.hash,
+          },
+        });
+        // Save extraction JSON for preview fallback (optional)
+        try {
+          await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
+            method: 'POST',
+            body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
+          });
+        } catch (extractionError) {
+          console.warn('Failed to save extraction data (non-critical):', extractionError);
+          // This is non-critical, continue with the upload
+        }
+      } catch (uploadError) {
+        console.error('Critical upload error:', uploadError);
+        throw uploadError;
+      }
+    }
+    setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q));
+    toast({ title: 'Saved', description: `${item.file.name} stored.` });
+    
+    // Check if this was the last item being processed, if so navigate to documents
+    if (!skipNavigation) {
+      const updatedQueue = queue.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q);
+      const hasMoreReady = updatedQueue.some(q => q.status === 'ready');
+      
+      if (!hasMoreReady) {
+        // No more items to process, navigate to documents folder
+        const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
+        setTimeout(() => {
+          router.push(`/documents${dest}`);
+        }, 1000); // Give a bit more time to show the success message
+      }
+    }
+    } catch (error) {
+      console.error('Document save error:', error);
+      setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'error', note: 'Save failed', locked: false } : q));
+      toast({ 
+        title: 'Save Failed', 
+        description: `Failed to save ${item.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`, 
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  const saveAllReady = async () => {
+    const indices = queue.map((q, i) => (q.status === 'ready' ? i : -1)).filter(i => i >= 0);
+    
+    if (indices.length === 0) {
+      toast({ title: 'No items to save', description: 'All items have already been processed.' });
+      return;
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const i of indices) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await onDone(i, true); // Skip individual navigation, we'll handle it at the end
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to save item ${i}:`, error);
+        errorCount++;
+      }
+    }
+    
+    // Show summary and navigate
+    if (successCount > 0) {
+      const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
+      
+      toast({ 
+        title: `Upload Complete!`, 
+        description: `${successCount} file${successCount > 1 ? 's' : ''} saved successfully${errorCount > 0 ? `, ${errorCount} failed` : ''}. Redirecting to documents...`
+      });
+      
+      // Navigate to the documents folder
+      setTimeout(() => {
+        router.push(`/documents${dest}`);
+      }, 1500); // Give time to read the success message
+    } else {
+      toast({ 
+        title: 'Upload Failed', 
+        description: 'No files were saved successfully. Please try again.', 
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  return (
+    <AppLayout>
+      <div className="p-0 md:p-0 space-y-6">
+        <div className="px-4 md:px-6 pt-4">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => {
+              const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
+              router.push(`/documents${dest}`);
+            }}
+            className="mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Documents
+          </Button>
+        </div>
+        <PageHeader
+          title={folderPath.length ? `Upload to /${folderPath.join('/')}` : "Upload Documents"}
+          subtitle={folderPath.length ? 
+            `Add files to the ${folderPath[folderPath.length - 1]} folder. We'll analyze, organize, and prepare smart metadata for you.` :
+            "Add files and we'll analyze, organize, and prepare smart metadata for you."
+          }
+          sticky
+        />
+        <div className="px-4 md:px-6">
+        <p className="text-sm text-muted-foreground">Add a new document to your collection.</p>
+        {!hasRoleAtLeast('contentManager') && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
+            <div className="font-semibold text-destructive">Uploading is restricted</div>
+            <p className="text-sm text-muted-foreground mt-1">Your role does not include upload permissions. Please contact an administrator to request <span className="font-medium">Content Manager</span> access or share files with someone who can upload on your behalf.</p>
+          </div>
+        )}
+
+        {hasRoleAtLeast('contentManager') && queue.length === 0 && (
+          <Card className="rounded-2xl">
+            <CardContent className="py-10">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-describedby="upload-help"
+                className={`mx-auto max-w-2xl border-2 border-dashed rounded-xl bg-card text-center p-10 transition-colors ${dragOver ? 'border-primary/40 bg-accent/10' : 'hover:bg-accent/10'}`}
+                onClick={onBrowse}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBrowse(); }}
+                onDragEnter={() => setDragOver(true)}
+                onDragLeave={() => setDragOver(false)}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDrop={(e) => { setDragOver(false); onDrop(e); }}
+              >
+                <UploadCloud className="h-12 w-12 mx-auto text-primary mb-4" />
+                <div className="text-lg font-semibold">Drag & drop files here</div>
+                <div className="text-sm text-muted-foreground">or click to browse</div>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
+                  <span className="rounded-full border px-2 py-0.5">PDF</span>
+                  <span className="rounded-full border px-2 py-0.5">DOC</span>
+                  <span className="rounded-full border px-2 py-0.5">DOCX</span>
+                  <span className="rounded-full border px-2 py-0.5">TXT</span>
+                  <span className="rounded-full border px-2 py-0.5">XLS/XLSX</span>
+                  <span className="rounded-full border px-2 py-0.5">PPT/PPTX</span>
+                  <span className="rounded-full border px-2 py-0.5">PNG/JPG</span>
+                </div>
+                <div id="upload-help" className="mt-2 text-xs text-muted-foreground">We’ll extract metadata and a summary automatically.</div>
+                <div className="mt-6 flex items-center justify-center gap-3">
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg"
+                    className="hidden"
+                    onChange={(e) => e.target.files && onSelect(e.target.files)}
+                  />
+                  <Button onClick={onBrowse} className="gap-2"><UploadCloud className="h-4 w-4" /> Browse files</Button>
+                </div>
+              </div>
+              <div className="mx-auto max-w-2xl mt-4 text-xs text-muted-foreground">
+                Tips: Keep filenames descriptive. You can link uploads as new versions after processing.
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {hasRoleAtLeast('contentManager') && queue.length > 0 && (
+          <>
+            <Card className="rounded-2xl">
+              <CardHeader className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle>Upload Queue</CardTitle>
+                    <div className="flex items-center gap-2">
+                    {carouselMode && queue.length > 1 && (
+                      <>
+                      <Button variant="outline" size="sm" onClick={() => setActiveIndex((prev) => {
+                        const i = (prev ?? 0) - 1;
+                        return i < 0 ? queue.length - 1 : i;
+                      })}>Prev</Button>
+                      <Button variant="outline" size="sm" onClick={() => setActiveIndex((prev) => {
+                        const i = (prev ?? 0) + 1;
+                        return i >= queue.length ? 0 : i;
+                      })}>Next</Button>
+                      </>
+                    )}
+                    {queue.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => setCarouselMode(m => !m)}>{carouselMode ? 'List' : 'Carousel'}</Button>
+                    )}
+                    </div>
+                </div>
+                {typeof activeIndex === 'number' && queue[activeIndex] && (
+                  <div className="text-xs text-muted-foreground">Viewing {activeIndex + 1} of {queue.length}</div>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {carouselMode && typeof activeIndex === 'number' && queue[activeIndex] ? (
+                  (() => {
+                    const item = queue[activeIndex]!;
+                    const i = activeIndex!;
+                    return (
+                      <div className={`rounded-lg border p-3 ring-1 ring-primary`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
+                            <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
+                          </div>
+                          <div className="w-40"><Progress value={item.progress} /></div>
+                          <div className="flex items-center gap-2">
+                            {item.status === 'idle' && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
+                            {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
+                            {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => {
+                              setQueue(prev => {
+                                const next = prev.filter((_, idx) => idx !== i);
+                                const newLen = next.length;
+                                if (newLen === 0) setActiveIndex(null);
+                                else setActiveIndex((prevIdx) => {
+                                  if (prevIdx === null) return 0;
+                                  const ni = Math.min(i, newLen - 1);
+                                  return ni;
+                                });
+                                return next;
+                              });
+                            }}>Remove</Button>}
+                          </div>
+                        </div>
+                        {/* Preview with simple rotation controls for images */}
+                        {item.previewUrl && (
+                          <div className="mt-3">
+                            <div className="flex items-center justify-center bg-muted/30 rounded-md overflow-hidden">
+                              {item.file.name.toLowerCase().endsWith('.pdf') ? (
+                                <embed src={item.previewUrl} type="application/pdf" className="w-full" style={{ height: 320 }} />
+                              ) : (
+                              <img
+                                src={item.previewUrl}
+                                alt="preview"
+                                style={{ transform: `rotate(${item.rotation || 0}deg)`, maxHeight: 240 }}
+                                className="object-contain w-full"
+                              />
+                              )}
+                            </div>
+                            {!item.file.name.toLowerCase().endsWith('.pdf') && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) - 90 + 360) % 360 } : q))}>Rotate Left</Button>
+                              <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) + 90) % 360 } : q))}>Rotate Right</Button>
+                            </div>
+                            )}
+                          </div>
+                        )}
+                        {item.status === 'ready' && item.form && (
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {/* Link as version vs new */}
+                            <div className="md:col-span-2">
+                              <label className="text-sm">Save mode</label>
+                              <div className="mt-2 flex items-center gap-4">
+                                <label className="flex items-center gap-2 text-sm">
+                                  <input type="radio" checked={item.linkMode === 'new'} onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'new' } : q))} /> New Document
+                                </label>
+                                <label className={"flex items-center gap-2 text-sm " + (!hasExistingDocs ? 'opacity-60' : '')}>
+                                  <input type="radio" disabled={!hasExistingDocs} checked={item.linkMode === 'version'} onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'version' } : q))} /> Link as New Version
+                                </label>
+                                {item.linkMode === 'version' && hasExistingDocs && item.candidates && item.candidates.length > 0 && (
+                                  <select
+                                    className="border rounded-md p-1 text-sm"
+                                    value={item.baseId}
+                                    onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, baseId: e.target.value } : q))}
+                                  >
+                                    {item.candidates.map(c => (
+                                      <option key={c.id} value={c.id}>{c.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+                                {item.linkMode === 'version' && hasExistingDocs && (
+                                  <Button size="sm" variant="outline" onClick={() => setPickerOpenIndex(i)}>Choose…</Button>
+                                )}
+                                {!hasExistingDocs && (
+                                  <span className="text-xs text-muted-foreground">No documents yet to link.</span>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Title</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Filename</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Sender</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Receiver</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Document Date</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Document Type</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="text-xs text-muted-foreground">Subject</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="text-xs text-muted-foreground">Description</label>
+                              <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Category</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.category || item.form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs text-muted-foreground">Keywords (comma)</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="text-xs text-muted-foreground">Tags (comma)</label>
+                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="text-xs text-muted-foreground">
+                                Upload Destination
+                                {folderPath.length > 0 && (
+                                  <span className="ml-2 text-primary font-medium">
+                                    /{folderPath.join('/')}
+                                  </span>
+                                )}
+                              </label>
+                              <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <UiSelect value={folderPath.length ? folderPath.join('/') : '__root__'} onValueChange={(v) => {
+                                  if (v === '__root__') setFolderPath([]); else setFolderPath(v.split('/').filter(Boolean));
+                                }}>
+                                  <UiSelectTrigger className="w-full">
+                                    <UiSelectValue placeholder={folderPath.length ? `/${folderPath.join('/')}` : "Root folder"} />
+                                  </UiSelectTrigger>
+                                  <UiSelectContent>
+                                    <UiSelectItem value="__root__">📁 Root</UiSelectItem>
+                                    {folders.map((p, idx) => (
+                                      <UiSelectItem key={idx} value={p.join('/')}>📁 {p.join('/')}</UiSelectItem>
+                                    ))}
+                                  </UiSelectContent>
+                                </UiSelect>
+                                <input 
+                                  className="rounded-md border bg-background p-2" 
+                                  placeholder="Custom path e.g., Finance/2025/Q1" 
+                                  value={folderPath.join('/')} 
+                                  onChange={(e) => setFolderPath(e.target.value.split('/').filter(Boolean))} 
+                                />
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Documents will be uploaded to: <span className="font-medium">/{folderPath.join('/') || 'Root'}</span>
+                                <br />
+                                New folders will be created automatically if they don't exist.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  queue.map((item, i) => (
+                    <div key={i} className={`rounded-lg border p-3 ${activeIndex === i ? 'ring-1 ring-primary' : ''}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
+                          <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
+                        </div>
+                        <div className="w-40"><Progress value={item.progress} /></div>
+                        <div className="flex items-center gap-2">
+                          {item.status === 'idle' && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
+                          {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
+                          {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.filter((_, idx) => idx !== i))}>Remove</Button>}
+                        </div>
+                      </div>
+                      {item.status === 'ready' && item.form && (
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-muted-foreground">Title</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Filename</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Sender</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Receiver</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Document Date</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Document Type</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-muted-foreground">Subject</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-muted-foreground">Description</label>
+                            <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Category</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.category || item.form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Keywords (comma)</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-muted-foreground">Tags (comma)</label>
+                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-muted-foreground">
+                              Upload Destination
+                              {folderPath.length > 0 && (
+                                <span className="ml-2 text-primary font-medium">
+                                  /{folderPath.join('/')}
+                                </span>
+                              )}
+                            </label>
+                            <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <UiSelect value={folderPath.length ? folderPath.join('/') : '__root__'} onValueChange={(v) => {
+                                if (v === '__root__') setFolderPath([]); else setFolderPath(v.split('/').filter(Boolean));
+                              }}>
+                                <UiSelectTrigger className="w-full">
+                                  <UiSelectValue placeholder={folderPath.length ? `/${folderPath.join('/')}` : "Root folder"} />
+                                </UiSelectTrigger>
+                                <UiSelectContent>
+                                  <UiSelectItem value="__root__">📁 Root</UiSelectItem>
+                                  {folders.map((p, idx) => (
+                                    <UiSelectItem key={idx} value={p.join('/')}>📁 {p.join('/')}</UiSelectItem>
+                                  ))}
+                                </UiSelectContent>
+                              </UiSelect>
+                              <input 
+                                className="rounded-md border bg-background p-2" 
+                                placeholder="Custom path e.g., Finance/2025/Q1" 
+                                value={folderPath.join('/')} 
+                                onChange={(e) => setFolderPath(e.target.value.split('/').filter(Boolean))} 
+                              />
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Documents will be uploaded to: <span className="font-medium">/{folderPath.join('/') || 'Root'}</span>
+                              <br />
+                              New folders will be created automatically if they don't exist.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Button variant="outline" onClick={onReset}>Clear</Button>
+                    {hasSuccess && <span className="text-xs text-muted-foreground">Saved: {queue.filter(q => q.status === 'success').length}</span>}
+                    {readyCount > 0 && <span className="text-xs text-muted-foreground">Ready: {readyCount}</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    {hasProcessable && queue.length > 1 && (
+                    <Button onClick={async () => {
+                      const indicesToProcess = queue.map((q, i) => (q.status === 'idle' || q.status === 'error') ? i : -1).filter(i => i >= 0);
+                      for (const i of indicesToProcess) {
+                        await processItem(i);
+                      }
+                    }}>Process All</Button>
+                    )}
+                    {readyCount > 0 && (
+                      <Button onClick={saveAllReady}>Save All & Go to Documents</Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {/* Version picker dialog */}
+        {typeof pickerOpenIndex === 'number' && queue[pickerOpenIndex] && (
+          <Dialog open onOpenChange={(open) => setPickerOpenIndex(open ? pickerOpenIndex : null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Select document to link as new version</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2">
+                <input
+                  className="w-full rounded-md border bg-background p-2 text-sm"
+                  placeholder="Search by name…"
+                  value={pickerQuery}
+                  onChange={(e) => setPickerQuery(e.target.value)}
+                />
+                <div className="max-h-64 overflow-y-auto space-y-1 border rounded-md p-2">
+                  {documents
+                    .filter(d => (d.title || d.name || '').toLowerCase().includes(pickerQuery.toLowerCase()))
+                    .slice(0, 50)
+                    .map(d => (
+                      <button
+                        key={d.id}
+                        onClick={() => {
+                          setQueue(prev => prev.map((q, idx) => idx === pickerOpenIndex ? { ...q, baseId: d.id, linkMode: 'version' } : q));
+                          setPickerOpenIndex(null);
+                        }}
+                        className="w-full text-left rounded-md px-2 py-1 hover:bg-accent text-sm"
+                      >
+                        {(d.title || d.name || 'Untitled')} <span className="ml-2 text-muted-foreground">v{d.versionNumber || d.version || 1}</span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPickerOpenIndex(null)}>Close</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
+
+

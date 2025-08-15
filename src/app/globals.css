@@ -1,0 +1,242 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Font family is controlled via next/font variable --font-sans and Tailwind font-sans */
+
+@layer base {
+  /* Theme presets (via data-theme) - minimal example for default and slate.
+     Based on shadcn/ui themes guidance [https://ui.shadcn.com/docs/theming] and gallery [https://ui.shadcn.com/themes#themes]. */
+  [data-theme='default'] {
+    /* use variables from :root (already default) */
+  }
+
+  :root {
+    /* Neutral light theme (shadcn-style) */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 231 48% 48%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 231 48% 48%;
+    --chart-1: 231 48% 48%;
+    --chart-2: 174 100% 29%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-primary: 231 48% 48%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+    --sidebar-ring: 231 48% 48%;
+    /* UI scale token for spacing tweaks if needed */
+    --ui-scale: 1;
+  }
+  .dark {
+    /* Deep neutral dark (not blue) */
+    --background: 0 0% 7%;
+    --foreground: 210 40% 98%;
+    --card: 0 0% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 0 0% 18%;
+    --input: 0 0% 20%;
+    --ring: 217 91% 60%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 0 0% 9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 222.2 47.4% 11.2%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 217 91% 60%;
+  }
+  /* Theme-specific overrides placed AFTER .dark so they win by order; also using higher specificity */
+  [data-theme='slate'] {
+    /* Light Slate */
+    --background: 210 20% 98%;
+    --foreground: 215 28% 17%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+    --primary: 215 16% 47%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 215 28% 17%;
+    --muted: 210 16% 92%;
+    --muted-foreground: 215 16% 46%;
+    --accent: 210 16% 92%;
+    --accent-foreground: 215 28% 17%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 215 16% 90%;
+    --input: 215 16% 90%;
+    --ring: 215 16% 47%;
+    /* Charts */
+    --chart-1: 215 16% 47%;
+    --chart-2: 160 45% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 50% 55%;
+    --chart-5: 340 60% 55%;
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 28% 17%;
+    --sidebar-primary: 215 16% 47%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 210 16% 93%;
+    --sidebar-accent-foreground: 215 28% 17%;
+    --sidebar-border: 215 16% 90%;
+    --sidebar-ring: 215 16% 47%;
+  }
+  .dark[data-theme='slate'] {
+    /* Dark Slate */
+    --background: 215 22% 14%;
+    --foreground: 210 40% 98%;
+    --card: 215 22% 16%;
+    --card-foreground: 210 40% 98%;
+    --popover: 215 22% 16%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 215 20% 65%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 215 18% 20%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 215 18% 18%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 215 18% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62% 35%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 215 18% 22%;
+    --input: 215 18% 22%;
+    --ring: 215 20% 65%;
+    /* Charts */
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    /* Sidebar */
+    --sidebar-background: 215 22% 16%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 215 20% 65%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 215 18% 20%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 18% 22%;
+    --sidebar-ring: 215 20% 65%;
+  }
+  /* Dark mode: tone the sidebar and card elevation for better separation */
+  .dark {
+    /* Slightly stronger accent for hover/active */
+    --sidebar-accent: var(--primary) / 0.22;
+    /* Keep foreground readable against the softer background */
+    --sidebar-accent-foreground: var(--sidebar-foreground);
+  }
+  /* Accent color overrides – placed last so they win over :root, .dark and theme presets */
+  [data-color='default'] {
+    /* no-op: keep theme's primary */
+  }
+  [data-color='red'] {
+    --primary: 0 84% 60%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 0 84% 60%;
+    --chart-1: 0 84% 60%;
+    --sidebar-primary: 0 84% 60%;
+  }
+  [data-color='rose'] {
+    --primary: 346 77% 56%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 346 77% 56%;
+    --chart-1: 346 77% 56%;
+    --sidebar-primary: 346 77% 56%;
+  }
+  [data-color='orange'] {
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 24 95% 53%;
+    --chart-1: 24 95% 53%;
+    --sidebar-primary: 24 95% 53%;
+  }
+  [data-color='green'] {
+    --primary: 142 76% 36%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 142 76% 36%;
+    --chart-1: 142 76% 36%;
+    --sidebar-primary: 142 76% 36%;
+  }
+  [data-color='blue'] {
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 221 83% 53%;
+    --chart-1: 221 83% 53%;
+    --sidebar-primary: 221 83% 53%;
+  }
+  [data-color='yellow'] {
+    --primary: 47 95% 53%;
+    --primary-foreground: 0 0% 10%;
+    --ring: 47 95% 53%;
+    --chart-1: 47 95% 53%;
+    --sidebar-primary: 47 95% 53%;
+  }
+  [data-color='violet'] {
+    --primary: 251 95% 60%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 251 95% 60%;
+    --chart-1: 251 95% 60%;
+    --sidebar-primary: 251 95% 60%;
+  }
+  /* Additional accent colors */
+  [data-color='amber'] { --primary: 38 92% 50%; --primary-foreground: 0 0% 10%; --ring: 38 92% 50%; --chart-1: 38 92% 50%; --sidebar-primary: 38 92% 50%; }
+  [data-color='lime'] { --primary: 84 81% 44%; --primary-foreground: 0 0% 10%; --ring: 84 81% 44%; --chart-1: 84 81% 44%; --sidebar-primary: 84 81% 44%; }
+  [data-color='emerald'] { --primary: 152 76% 33%; --primary-foreground: 0 0% 100%; --ring: 152 76% 33%; --chart-1: 152 76% 33%; --sidebar-primary: 152 76% 33%; }
+  [data-color='teal'] { --primary: 173 80% 36%; --primary-foreground: 0 0% 100%; --ring: 173 80% 36%; --chart-1: 173 80% 36%; --sidebar-primary: 173 80% 36%; }
+  [data-color='cyan'] { --primary: 188 94% 42%; --primary-foreground: 0 0% 100%; --ring: 188 94% 42%; --chart-1: 188 94% 42%; --sidebar-primary: 188 94% 42%; }
+  [data-color='sky'] { --primary: 204 94% 50%; --primary-foreground: 0 0% 100%; --ring: 204 94% 50%; --chart-1: 204 94% 50%; --sidebar-primary: 204 94% 50%; }
+  [data-color='indigo'] { --primary: 239 84% 67%; --primary-foreground: 0 0% 100%; --ring: 239 84% 67%; --chart-1: 239 84% 67%; --sidebar-primary: 239 84% 67%; }
+  [data-color='purple'] { --primary: 272 52% 47%; --primary-foreground: 0 0% 100%; --ring: 272 52% 47%; --chart-1: 272 52% 47%; --sidebar-primary: 272 52% 47%; }
+  [data-color='fuchsia'] { --primary: 300 84% 60%; --primary-foreground: 0 0% 100%; --ring: 300 84% 60%; --chart-1: 300 84% 60%; --sidebar-primary: 300 84% 60%; }
+  [data-color='pink'] { --primary: 330 81% 60%; --primary-foreground: 0 0% 100%; --ring: 330 81% 60%; --chart-1: 330 81% 60%; --sidebar-primary: 330 81% 60%; }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
