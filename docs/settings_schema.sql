@@ -29,11 +29,15 @@ create table if not exists org_settings (
 alter table user_settings enable row level security;
 alter table org_settings enable row level security;
 
--- RLS Policies for user_settings
+-- RLS Policies for user_settings (drop if exists to avoid conflicts)
+drop policy if exists user_settings_self_read on user_settings;
+drop policy if exists user_settings_self_write on user_settings;
 create policy user_settings_self_read on user_settings for select using (user_id = auth.uid());
 create policy user_settings_self_write on user_settings for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- RLS Policies for org_settings  
+-- RLS Policies for org_settings (drop if exists to avoid conflicts)
+drop policy if exists org_settings_member_read on org_settings;
+drop policy if exists org_settings_admin_write on org_settings;
 create policy org_settings_member_read on org_settings for select using (is_member_of(org_id));
 create policy org_settings_admin_write on org_settings for all using (current_org_role(org_id) = 'orgAdmin') with check (current_org_role(org_id) = 'orgAdmin');
 
