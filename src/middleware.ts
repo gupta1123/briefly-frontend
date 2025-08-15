@@ -6,7 +6,7 @@ const AUTH_COOKIE = 'docustore_auth_v1';
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // Allow next internals and static files
-  if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/favicon') || pathname.startsWith('/signin') || pathname.startsWith('/no-access')) {
+  if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/favicon') || pathname.startsWith('/signin') || pathname.startsWith('/no-access') || pathname.startsWith('/ip-blocked')) {
     return NextResponse.next();
   }
 

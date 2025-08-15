@@ -51,8 +51,25 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
-    try { const j = await res.json(); msg = j.error || msg; } catch {}
-    throw new Error(`API ${opts.method || 'GET'} ${path} failed: ${msg}`);
+    let errorData: any = null;
+    try { 
+      errorData = await res.json(); 
+      msg = errorData.error || errorData.message || msg; 
+    } catch {}
+
+    // Handle IP blocking specifically
+    if (res.status === 403 && errorData?.code === 'IP_NOT_ALLOWED') {
+      // Redirect to IP blocked page
+      if (typeof window !== 'undefined') {
+        window.location.href = '/ip-blocked';
+        return;
+      }
+    }
+
+    const error = new Error(`API ${opts.method || 'GET'} ${path} failed: ${msg}`);
+    (error as any).status = res.status;
+    (error as any).data = errorData;
+    throw error;
   }
   const text = await res.text();
   if (!text) return undefined as unknown as T;
