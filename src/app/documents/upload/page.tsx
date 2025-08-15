@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import AppLayout from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +37,7 @@ type Extracted = {
   metadata: ExtractDocumentMetadataOutput;
 };
 
-export default function UploadPage() {
+function UploadContent() {
   const [files, setFiles] = useState<File[]>([]);
   const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string }[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -937,6 +937,14 @@ export default function UploadPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function UploadPage() {
+  return (
+    <Suspense fallback={<div className="p-4">Loading...</div>}>
+      <UploadContent />
+    </Suspense>
   );
 }
 

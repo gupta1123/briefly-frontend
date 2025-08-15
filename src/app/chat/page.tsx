@@ -4,13 +4,13 @@ import AppLayout from '@/components/layout/app-layout';
 import Chatbot from '@/components/chatbot';
 import { useDocuments } from '@/hooks/use-documents';
 import { useSearchParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, Suspense } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/page-header';
 import { MessageSquare } from 'lucide-react';
 
-export default function ChatPage() {
+function ChatContent() {
   const { documents } = useDocuments();
   const searchParams = useSearchParams();
   const docId = searchParams?.get('docId') || '';
@@ -70,6 +70,14 @@ export default function ChatPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="p-4">Loading...</div>}>
+      <ChatContent />
+    </Suspense>
   );
 }
 
