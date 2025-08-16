@@ -66,54 +66,33 @@ const extractDocumentMetadataPrompt = ai.definePrompt({
   name: 'extractDocumentMetadataPrompt',
   input: {schema: ExtractDocumentMetadataInputSchema},
   output: {schema: ExtractDocumentMetadataOutputSchema},
-  prompt: `You are an expert AI assistant specialized in extracting metadata from documents.
+  prompt: `You are an expert document summarizer and information extractor.
 
-You will receive a document and its type. Extract fields for the form and detail view. The following are COMPULSORY and must never be empty: Title, Subject, Keywords (>=3), Tags (>=3). If the document does not explicitly provide them, synthesize concise, faithful values from its content.
+You will receive a document in various formats (PDF, PNG, JPG, DOCX, TXT, MD). Your task is to:
 
-- Summary: detailed EXACTLY 300 words (±10 words acceptable, aim for 290-310 words) as continuous prose, no bullets.
-- Keywords: 5–10 important, deduplicated terms.
-- Dates: any dates mentioned.
-- Entities: people, orgs, locations.
-- Title, Filename (if present), Sender, Receiver, DocumentDate, DocumentType, Subject, Description (short paragraph), Category, Tags (3–8 tags, short phrases).
-- Purpose (aiPurpose), Key Points (aiKeyPoints bullet list), Context (aiContext), Outcome/Action (aiOutcome), extra AI Keywords (aiKeywords).
+1. Create a concise summary of the document, no more than 300 words, in English.
+2. Identify the subject of the document.
+3. Identify the date the document was sent. If you cannot find one, leave it blank.
+4. Identify all distinct pairs of sender and receiver in the document. For each pair, provide the sender and the receiver.
+5. Extract keywords from the document.
+6. Categorize the document into one of the following categories: {{#if availableCategories}}{{#each availableCategories}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}{{else}}General{{/if}}. Choose the single most appropriate category.
 
-Sender/Receiver Handling:
-- For sender: identify the primary author, issuer, or originating entity.
-- For receiver: identify the primary recipient or target audience.
-- CRITICAL: Scan the document equally for BOTH multiple senders AND multiple receivers. Pay equal attention to both!
+Even if the document is in another language, you must provide the summary, subject, date, sender/receiver pairs, keywords, and category in English.
 
-Multiple SENDERS - Use senderOptions when you find:
-  * Multiple "From:" fields, signatures, letterheads, or authors
-  * Joint communications from multiple organizations/departments
-  * Multiple officials or department heads mentioned as sources
-  * Co-signers or multiple authority figures
+Consider the entire document, including any tables, images, and handwritten text. If there are multiple distinct sender/receiver pairs, identify each one.
 
-Multiple RECEIVERS - Use receiverOptions when you find:
-  * Multiple names in "To:" field or addressee lines
-  * Document addressed to multiple departments/organizations
-  * CC/BCC lists with multiple meaningful recipients
-  * Distribution lists or broadcast communications
-  * Reports for multiple stakeholders or audiences
-  * Letters mentioning multiple concerned parties or addressees
-
-- Always populate the primary sender/receiver fields with the most likely candidate.
-- senderOptions/receiverOptions should contain 2+ items only when genuinely found in the document.
-- Look just as hard for multiple receivers as you do for multiple senders!
-
-Rules:
-- Always output non-empty Title and Subject.
-- Always output at least 3 Keywords and 3 Tags; deduplicate and trim.
-- Prefer specific, grounded phrasing; avoid speculation.
-
-CATEGORY SELECTION:
-{{#if availableCategories}}
-For the category field, you MUST choose from this organization's predefined categories: {{#each availableCategories}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
-- Select the most appropriate category based on the document content and type
-- If uncertain, default to "General"
-- Do NOT create new categories outside this list
-{{else}}
-For the category field, use "General" as the default category.
-{{/if}}
+IMPORTANT OUTPUT REQUIREMENTS:
+- summary: Use the summary from step 1 (max 300 words)
+- subject: Use the subject from step 2
+- documentDate: Use the date from step 3
+- sender: Use the primary sender from step 4
+- receiver: Use the primary receiver from step 4
+- senderOptions: Array of all senders found in step 4
+- receiverOptions: Array of all receivers found in step 4
+- keywords: Use keywords from step 5 (minimum 3)
+- category: Use category from step 6
+- tags: Generate 3-8 relevant tags based on document content
+- title: Generate a concise title based on subject and content
 
 Document Type: {{{documentType}}}
 Document: {{media url=documentDataUri}}
