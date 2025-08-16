@@ -46,6 +46,7 @@ function UploadContent() {
   const [dragOver, setDragOver] = useState<boolean>(false);
   const [pickerOpenIndex, setPickerOpenIndex] = useState<number | null>(null);
   const [pickerQuery, setPickerQuery] = useState('');
+  const [isProcessingAll, setIsProcessingAll] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { addDocument, documents, linkAsNewVersion, refresh } = useDocuments();
@@ -437,20 +438,33 @@ function UploadContent() {
     console.log('newDoc.folderPath:', newDoc.folderPath, 'Type:', typeof newDoc.folderPath, 'Is Array:', Array.isArray(newDoc.folderPath));
     
     // Ensure nested folders exist - create each level sequentially
+    console.log('🔍 Creating folder structure for path:', folderPath);
     try {
       for (let i = 0; i < folderPath.length; i++) {
         const slice = folderPath.slice(0, i + 1);
         const parentPath = slice.slice(0, -1);
         const folderName = slice[slice.length - 1];
         
+        console.log(`🔍 Level ${i + 1}: Creating folder "${folderName}" with parent path:`, parentPath);
+        
         // Check if folder already exists before creating
         const existing = folders.find(f => JSON.stringify(f) === JSON.stringify(slice));
         if (!existing) {
-          await createFolder(parentPath, folderName);
+          console.log(`🔍 Folder "${folderName}" doesn't exist, creating...`);
+          const result = await createFolder(parentPath, folderName);
+          console.log(`🔍 Folder creation result:`, result);
+        } else {
+          console.log(`🔍 Folder "${folderName}" already exists, skipping creation`);
         }
       }
+      console.log('✅ Folder structure creation completed successfully');
     } catch (error) {
-      console.error('Failed to create folder structure:', error);
+      console.error('❌ Failed to create folder structure:', error);
+      toast({ 
+        title: 'Folder creation failed', 
+        description: `Could not create folder structure: ${error instanceof Error ? error.message : 'Unknown error'}`, 
+        variant: 'destructive' 
+      });
       // Continue with document creation even if folder creation fails
     }
     // Link choice
@@ -467,12 +481,21 @@ function UploadContent() {
     }
 
     if (item.linkMode === 'version' && item.baseId) {
+      console.log('🔍 Linking as new version to document:', item.baseId);
       linkAsNewVersion(item.baseId, newDoc as any);
     } else {
+      console.log('🔍 Creating new document with data:', {
+        title: newDoc.title,
+        folderPath: newDoc.folderPath,
+        type: newDoc.type
+      });
       const created = await addDocument(newDoc);
+      console.log('✅ Document created successfully:', created);
+      
       // Finalize file info for created row
       try {
         const orgId = getApiContext().orgId || '';
+        console.log('🔍 Finalizing upload for document:', created.id);
         await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
           method: 'POST',
           body: {
@@ -659,7 +682,7 @@ function UploadContent() {
                           </div>
                           <div className="w-40"><Progress value={item.progress} /></div>
                           <div className="flex items-center gap-2">
-                            {item.status === 'idle' && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
+                            {item.status === 'idle' && !isProcessingAll && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
                             {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
                             {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => {
                               setQueue(prev => {
@@ -1013,32 +1036,11 @@ function UploadContent() {
                                 </span>
                               )}
                             </label>
-                            <div className="mt-1 grid grid-cols-1 md:grid-cols-2 gap-2">
-                              <UiSelect value={folderPath.length ? folderPath.join('/') : '__root__'} onValueChange={(v) => {
-                                if (v === '__root__') setFolderPath([]); else setFolderPath(v.split('/').filter(Boolean));
-                              }}>
-                                <UiSelectTrigger className="w-full">
-                                  <UiSelectValue placeholder={folderPath.length ? `/${folderPath.join('/')}` : "Root folder"} />
-                                </UiSelectTrigger>
-                                <UiSelectContent>
-                                  <UiSelectItem value="__root__">📁 Root</UiSelectItem>
-                                  {folders.map((p, idx) => (
-                                    <UiSelectItem key={idx} value={p.join('/')}>📁 {p.join('/')}</UiSelectItem>
-                                  ))}
-                                </UiSelectContent>
-                              </UiSelect>
-                              <input 
-                                className="rounded-md border bg-background p-2" 
-                                placeholder="Custom path e.g., Finance/2025/Q1" 
-                                value={folderPath.join('/')} 
-                                onChange={(e) => setFolderPath(e.target.value.split('/').filter(Boolean))} 
-                              />
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
+                            <div className="mt-1 text-xs text-muted-foreground">
                               Documents will be uploaded to: <span className="font-medium">/{folderPath.join('/') || 'Root'}</span>
                               <br />
-                              New folders will be created automatically if they don't exist.
-                            </p>
+                              Folder path is set from the main form above.
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1054,9 +1056,14 @@ function UploadContent() {
                   <div className="flex gap-2">
                     {hasProcessable && queue.length > 1 && (
                     <Button onClick={async () => {
-                      const indicesToProcess = queue.map((q, i) => (q.status === 'idle' || q.status === 'error') ? i : -1).filter(i => i >= 0);
-                      for (const i of indicesToProcess) {
-                        await processItem(i);
+                      setIsProcessingAll(true);
+                      try {
+                        const indicesToProcess = queue.map((q, i) => (q.status === 'idle' || q.status === 'error') ? i : -1).filter(i => i >= 0);
+                        for (const i of indicesToProcess) {
+                          await processItem(i);
+                        }
+                      } finally {
+                        setIsProcessingAll(false);
                       }
                     }}>Process All</Button>
                     )}
