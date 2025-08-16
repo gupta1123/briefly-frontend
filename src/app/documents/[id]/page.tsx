@@ -167,7 +167,7 @@ export default function DocumentDetailPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
           {/* Left stack - 60% */}
-          <div className="xl:col-span-3 space-y-6">
+          <div className="xl:col-span-3 space-y-6 min-w-0">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -198,37 +198,37 @@ export default function DocumentDetailPage() {
               </CardHeader>
               <CardContent>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                      <MessageSquare className="h-3 w-3 flex-shrink-0" />
                       Subject
                     </p>
-                    <p className="font-medium">{doc.subject || '—'}</p>
+                    <p className="font-medium break-words">{doc.subject || '—'}</p>
                   </div>
-                   <div>
-                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
-                       <Hash className="h-3 w-3" />
+                   <div className="min-w-0">
+                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                       <Hash className="h-3 w-3 flex-shrink-0" />
                        Keywords
                      </p>
-                     <p className="font-medium">{(doc.keywords || []).join(', ') || '—'}</p>
+                     <p className="font-medium break-words">{(doc.keywords || []).join(', ') || '—'}</p>
                    </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
-                      <User className="h-3 w-3" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                      <User className="h-3 w-3 flex-shrink-0" />
                       Sender
                     </p>
-                    <p className="font-medium">{doc.sender || 'N/A'}</p>
+                    <p className="font-medium break-words">{doc.sender || 'N/A'}</p>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
-                      <UserCheck className="h-3 w-3" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                      <UserCheck className="h-3 w-3 flex-shrink-0" />
                       Receiver
                     </p>
-                    <p className="font-medium">{doc.receiver || '—'}</p>
+                    <p className="font-medium break-words">{doc.receiver || '—'}</p>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
+                  <div className="min-w-0 md:col-span-2">
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                      <Calendar className="h-3 w-3 flex-shrink-0" />
                       Uploaded
                     </p>
                     <p className="font-medium">{formatAppDateTime(doc.uploadedAt)}</p>
@@ -248,22 +248,22 @@ export default function DocumentDetailPage() {
                 {doc.description && (
                   <div>
                     <h3 className="font-semibold mb-1">AI Summary</h3>
-                    <p className="text-muted-foreground whitespace-pre-wrap">{doc.description}</p>
+                    <p className="text-muted-foreground whitespace-pre-wrap break-words">{doc.description}</p>
                   </div>
                 )}
                 {(doc.aiPurpose || (doc.aiKeyPoints && doc.aiKeyPoints.length) || doc.aiContext || doc.aiOutcome) && (
                   <div className="space-y-2">
-                    {doc.aiPurpose && <div><span className="font-semibold">Purpose:</span> {doc.aiPurpose}</div>}
+                    {doc.aiPurpose && <div><span className="font-semibold">Purpose:</span> <span className="break-words">{doc.aiPurpose}</span></div>}
                     {doc.aiKeyPoints && doc.aiKeyPoints.length > 0 && (
                       <div>
                         <div className="font-semibold mb-1">Key Points</div>
                         <ul className="list-disc pl-5 space-y-1">
-                          {doc.aiKeyPoints.map((p, i) => (<li key={i}>{p}</li>))}
+                          {doc.aiKeyPoints.map((p, i) => (<li key={i} className="break-words">{p}</li>))}
                         </ul>
                       </div>
                     )}
-                    {doc.aiContext && <div><span className="font-semibold">Context:</span> {doc.aiContext}</div>}
-                    {doc.aiOutcome && <div><span className="font-semibold">Outcome/Action:</span> {doc.aiOutcome}</div>}
+                    {doc.aiContext && <div><span className="font-semibold">Context:</span> <span className="break-words">{doc.aiContext}</span></div>}
+                    {doc.aiOutcome && <div><span className="font-semibold">Outcome/Action:</span> <span className="break-words">{doc.aiOutcome}</span></div>}
                   </div>
                 )}
 
@@ -322,48 +322,54 @@ export default function DocumentDetailPage() {
                   File Info
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <CardContent className="space-y-4 text-sm">
                 {doc.filename && (
-                  <div className="md:col-span-2 grid grid-cols-4 items-start gap-3">
-                    <span className="text-muted-foreground col-span-1 flex items-center gap-1">
-                      <FileTextIcon className="h-3 w-3" />
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <FileTextIcon className="h-3 w-3 flex-shrink-0" />
                       Filename
                     </span>
-                    <span className="font-medium col-span-3 break-words">{doc.filename}</span>
+                    <span className="font-medium md:col-span-3 break-words">{doc.filename}</span>
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Created
-                  </span>
-                  <span className="font-medium">{formatAppDateTime(doc.uploadedAt)}</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Calendar className="h-3 w-3 flex-shrink-0" />
+                        Created
+                      </span>
+                      <span className="font-medium">{formatAppDateTime(doc.uploadedAt)}</span>
+                    </div>
+                    {doc.fileSizeBytes !== undefined && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <HardDrive className="h-3 w-3 flex-shrink-0" />
+                          File Size
+                        </span>
+                        <span className="font-medium">{formatSize(doc.fileSizeBytes)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Tag className="h-3 w-3 flex-shrink-0" />
+                        Type
+                      </span>
+                      <span className="font-medium break-words">{doc.documentType || doc.type}</span>
+                    </div>
+                    {doc.mimeType && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <FileType className="h-3 w-3 flex-shrink-0" />
+                          MIME Type
+                        </span>
+                        <span className="font-medium break-words">{doc.mimeType}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Tag className="h-3 w-3" />
-                    Type
-                  </span>
-                  <span className="font-medium">{doc.documentType || doc.type}</span>
-                </div>
-                {doc.fileSizeBytes !== undefined && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <HardDrive className="h-3 w-3" />
-                      File Size
-                    </span>
-                    <span className="font-medium">{formatSize(doc.fileSizeBytes)}</span>
-                  </div>
-                )}
-                {doc.mimeType && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <FileType className="h-3 w-3" />
-                      MIME Type
-                    </span>
-                    <span className="font-medium">{doc.mimeType}</span>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </div>
