@@ -15,6 +15,7 @@ type DocumentsContextValue = {
   refresh: () => Promise<void>;
   addDocument: (doc: Partial<StoredDocument>) => Promise<StoredDocument>;
   removeDocument: (id: string) => Promise<void>;
+  removeDocuments: (ids: string[]) => Promise<{ deleted: number; storage_cleaned: number }>;
   updateDocument: (
     id: string,
     patchOrUpdater: Partial<StoredDocument> | ((prev: StoredDocument) => Partial<StoredDocument>)
@@ -23,7 +24,7 @@ type DocumentsContextValue = {
   clearAll: () => void;
   // folders
   createFolder: (parentPath: string[], name: string) => Promise<any>;
-  deleteFolder: (path: string[]) => Promise<any>;
+  deleteFolder: (path: string[], mode?: 'move_to_root' | 'delete_all') => Promise<any>;
   listFolders: (path: string[]) => string[][];
   getDocumentsInPath: (path: string[]) => StoredDocument[];
   moveDocumentsToPath: (ids: string[], destPath: string[]) => Promise<void>;
@@ -93,6 +94,25 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     await apiFetch(`/orgs/${orgId}/documents/${id}`, { method: 'DELETE' });
     setDocuments(prev => prev.filter(d => d.id !== id));
   }, []);
+
+  const removeDocuments = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return { deleted: 0, storage_cleaned: 0 };
+    if (ids.length === 1) {
+      await removeDocument(ids[0]);
+      return { deleted: 1, storage_cleaned: 0 }; // Single deletion doesn't return storage info
+    }
+    
+    const orgId = getOrgId();
+    if (!orgId) throw new Error('No organization selected');
+    
+    const result = await apiFetch(`/orgs/${orgId}/documents`, { 
+      method: 'DELETE',
+      body: { ids }
+    });
+    
+    setDocuments(prev => prev.filter(d => !ids.includes(d.id)));
+    return result;
+  }, [removeDocument]);
 
   const updateDocument = useCallback(async (id: string, patchOrUpdater: Partial<StoredDocument> | ((prev: StoredDocument) => Partial<StoredDocument>)) => {
     const orgId = getOrgId();
@@ -166,13 +186,13 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
   const listFolders = useCallback((path: string[]) => folders.filter(p => p.length === path.length + 1 && path.every((seg, i) => seg === p[i])), [folders]);
 
-  const deleteFolder = useCallback(async (path: string[]) => {
+  const deleteFolder = useCallback(async (path: string[], mode: 'move_to_root' | 'delete_all' = 'move_to_root') => {
     const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
     
     try {
       const result = await apiFetch(`/orgs/${orgId}/folders`, { 
         method: 'DELETE', 
-        body: { path } 
+        body: { path, mode } 
       });
       
       // Update local state - remove the folder and any subfolders
@@ -181,12 +201,25 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
         return !(p.length >= path.length && path.every((seg, i) => seg === p[i]));
       }));
       
+      // If documents were moved to root, refresh to update their paths
+      if (mode === 'move_to_root' && result.documentsHandled > 0) {
+        void refresh();
+      } else if (mode === 'delete_all') {
+        // Remove deleted documents from local state
+        const docsInFolder = documents.filter(d => 
+          JSON.stringify(d.folderPath || []) === JSON.stringify(path)
+        );
+        setDocuments(prev => prev.filter(d => 
+          JSON.stringify(d.folderPath || []) !== JSON.stringify(path)
+        ));
+      }
+      
       return result;
     } catch (error) {
       console.error('Failed to delete folder:', error);
       throw error;
     }
-  }, [getOrgId]);
+  }, [getOrgId, refresh, documents]);
 
   const getDocumentsInPath = useCallback((path: string[]) => documents.filter(d => JSON.stringify(d.folderPath || []) === JSON.stringify(path)), [documents]);
 
@@ -230,6 +263,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     refresh,
     addDocument,
     removeDocument,
+    removeDocuments,
     updateDocument,
     getDocumentById,
     clearAll,
@@ -241,7 +275,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     linkAsNewVersion,
     unlinkFromVersionGroup,
     setCurrentVersion,
-  }), [documents, folders, refresh, addDocument, removeDocument, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
+  }), [documents, folders, refresh, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
 
   return <DocumentsContext.Provider value={value}>{children}</DocumentsContext.Provider>;
 }

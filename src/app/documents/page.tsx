@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, Grid2X2, List, Grid3X3, Folder as FolderIcon, FileText, Trash2, ArrowLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -80,6 +81,41 @@ export default function DocumentsPage() {
   const [editingTitle, setEditingTitle] = useState('');
   const bulkTagInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  
+  // Folder deletion dialog state
+  const [folderToDelete, setFolderToDelete] = useState<string[] | null>(null);
+  const [deletionMode, setDeletionMode] = useState<'move_to_root' | 'delete_all'>('move_to_root');
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const handleFolderDeletion = async () => {
+    if (!folderToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      const result = await deleteFolder(folderToDelete, deletionMode);
+      
+      let message = `Folder "${folderToDelete[folderToDelete.length - 1]}" deleted successfully`;
+      if (result.documentsHandled > 0) {
+        if (deletionMode === 'move_to_root') {
+          message += `. ${result.documentsHandled} document(s) moved to root folder.`;
+        } else {
+          message += `. ${result.documentsHandled} document(s) deleted.`;
+        }
+      }
+      
+      toast({ title: 'Success', description: message });
+      setFolderToDelete(null);
+    } catch (error: any) {
+      console.error('Failed to delete folder:', error);
+      toast({ 
+        title: 'Failed to delete folder', 
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive' 
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredDocs = useMemo(() => {
     // When searching, search ALL documents across folders, not just current folder
@@ -409,21 +445,10 @@ export default function DocumentsPage() {
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Delete folder "${p[p.length - 1]}" and all its contents?`)) {
-                            try {
-                              await deleteFolder(p);
-                              toast({ title: 'Folder deleted successfully' });
-                            } catch (error: any) {
-                              console.error('Failed to delete folder:', error);
-                              toast({ 
-                                title: 'Failed to delete folder', 
-                                description: error instanceof Error ? error.message : 'Unknown error',
-                                variant: 'destructive' 
-                              });
-                            }
-                          }
+                          setFolderToDelete(p);
+                          setDeletionMode('move_to_root'); // Reset to default
                         }}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -608,6 +633,71 @@ export default function DocumentsPage() {
         </div>
       </div>
       <Chatbot documents={documents} />
+      
+      {/* Folder Deletion Confirmation Dialog */}
+      <Dialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Folder</DialogTitle>
+          </DialogHeader>
+          
+          {folderToDelete && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                You are about to delete the folder <span className="font-medium">"{folderToDelete[folderToDelete.length - 1]}"</span>.
+              </p>
+              
+              {getDocumentsInPath(folderToDelete).length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">
+                    This folder contains {getDocumentsInPath(folderToDelete).length} document(s). What would you like to do?
+                  </p>
+                  
+                  <RadioGroup value={deletionMode} onValueChange={(value: 'move_to_root' | 'delete_all') => setDeletionMode(value)}>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="move_to_root" id="move" />
+                      <label htmlFor="move" className="text-sm">
+                        <span className="font-medium">Move documents to root folder</span>
+                        <br />
+                        <span className="text-muted-foreground">Documents will be preserved and moved to the root folder</span>
+                      </label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="delete_all" id="delete" />
+                      <label htmlFor="delete" className="text-sm">
+                        <span className="font-medium text-destructive">Delete all documents</span>
+                        <br />
+                        <span className="text-muted-foreground">All documents and their files will be permanently deleted</span>
+                      </label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
+              
+              {getDocumentsInPath(folderToDelete).length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  This folder is empty and will be deleted immediately.
+                </p>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFolderToDelete(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button 
+              variant={deletionMode === 'delete_all' ? 'destructive' : 'default'}
+              onClick={handleFolderDeletion}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : (
+                deletionMode === 'delete_all' ? 'Delete All' : 'Delete Folder'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
