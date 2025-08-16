@@ -48,9 +48,29 @@ function UploadContent() {
   const [pickerQuery, setPickerQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const { addDocument, documents, linkAsNewVersion } = useDocuments();
+  const { addDocument, documents, linkAsNewVersion, refresh } = useDocuments();
   const router = useRouter();
   const { categories } = useCategories();
+  
+  const saveAllReady = async () => {
+    const readyItems = queue.map((item, index) => ({ item, index })).filter(({ item }) => item.status === 'ready' && !item.locked);
+    
+    if (readyItems.length === 0) {
+      toast({ title: 'No items to save', description: 'All ready items are already saved or being processed.' });
+      return;
+    }
+
+    // Save all ready items in parallel, but skip navigation for all except the last one
+    const savePromises = readyItems.map(({ index }, i) => 
+      onDone(index, i < readyItems.length - 1) // Skip navigation for all but the last item
+    );
+    
+    try {
+      await Promise.all(savePromises);
+    } catch (error) {
+      console.error('Error saving all items:', error);
+    }
+  };
   const [form, setForm] = useState({
     title: '',
     filename: '',
@@ -315,7 +335,10 @@ function UploadContent() {
 
   const onDone = async (index: number, skipNavigation = false) => {
     const item = queue[index];
-    if (!item || !item.extracted || !item.form || item.status === 'success') return;
+    if (!item || !item.extracted || !item.form || item.status === 'success' || item.locked) return;
+    
+    // Immediately lock the item to prevent duplicate saves
+    setQueue(prev => prev.map((q, i) => i === index ? { ...q, locked: true, status: 'saving' } : q));
     
     try {
     // Normalize summary length to ~300 words to ensure consistency
@@ -430,6 +453,13 @@ function UploadContent() {
     setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q));
     toast({ title: 'Saved', description: `${item.file.name} stored.` });
     
+    // Refresh documents to update sidebar count immediately
+    try {
+      await refresh();
+    } catch (error) {
+      console.warn('Failed to refresh documents after save:', error);
+    }
+    
     // Check if this was the last item being processed, if so navigate to documents
     if (!skipNavigation) {
       const updatedQueue = queue.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q);
@@ -440,7 +470,7 @@ function UploadContent() {
         const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
         setTimeout(() => {
           router.push(`/documents${dest}`);
-        }, 1000); // Give a bit more time to show the success message
+        }, 500); // Reduced delay for faster navigation
       }
     }
     } catch (error) {
@@ -449,50 +479,6 @@ function UploadContent() {
       toast({ 
         title: 'Save Failed', 
         description: `Failed to save ${item.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`, 
-        variant: 'destructive' 
-      });
-    }
-  };
-
-  const saveAllReady = async () => {
-    const indices = queue.map((q, i) => (q.status === 'ready' ? i : -1)).filter(i => i >= 0);
-    
-    if (indices.length === 0) {
-      toast({ title: 'No items to save', description: 'All items have already been processed.' });
-      return;
-    }
-    
-    let successCount = 0;
-    let errorCount = 0;
-    
-    for (const i of indices) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await onDone(i, true); // Skip individual navigation, we'll handle it at the end
-        successCount++;
-      } catch (error) {
-        console.error(`Failed to save item ${i}:`, error);
-        errorCount++;
-      }
-    }
-    
-    // Show summary and navigate
-    if (successCount > 0) {
-      const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
-      
-      toast({ 
-        title: `Upload Complete!`, 
-        description: `${successCount} file${successCount > 1 ? 's' : ''} saved successfully${errorCount > 0 ? `, ${errorCount} failed` : ''}. Redirecting to documents...`
-      });
-      
-      // Navigate to the documents folder
-      setTimeout(() => {
-        router.push(`/documents${dest}`);
-      }, 1500); // Give time to read the success message
-    } else {
-      toast({ 
-        title: 'Upload Failed', 
-        description: 'No files were saved successfully. Please try again.', 
         variant: 'destructive' 
       });
     }
@@ -586,6 +572,12 @@ function UploadContent() {
                 <div className="flex items-center justify-between">
                   <CardTitle>Upload Queue</CardTitle>
                     <div className="flex items-center gap-2">
+                    {queue.filter(item => item.status === 'ready' && !item.locked).length > 1 && (
+                      <Button variant="default" size="sm" onClick={saveAllReady} className="gap-2">
+                        <Check className="h-3 w-3" />
+                        Save All ({queue.filter(item => item.status === 'ready' && !item.locked).length})
+                      </Button>
+                    )}
                     {carouselMode && queue.length > 1 && (
                       <>
                       <Button variant="outline" size="sm" onClick={() => setActiveIndex((prev) => {
