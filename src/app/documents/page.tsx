@@ -17,7 +17,8 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { formatAppDateTime, parseFlexibleDate } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -55,11 +56,21 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
   return <Icon className={`${themeColor} ${className}`} />;
 }
 
-export default function DocumentsPage() {
+function DocumentsPageContent() {
   const { documents, folders, listFolders, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath } = useDocuments();
   const { hasRoleAtLeast } = useAuth();
   const isLoading = false; // placeholder; replace with real loading if data is remote in future
+  const searchParams = useSearchParams();
   const [path, setPath] = useState<string[]>([]);
+  
+  // Initialize path from URL parameters on mount
+  useEffect(() => {
+    const pathParam = searchParams.get('path');
+    if (pathParam) {
+      const pathArray = pathParam.split('/').filter(Boolean);
+      setPath(pathArray);
+    }
+  }, [searchParams]);
   const [view, setView] = useState<ViewMode>('list');
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -149,6 +160,16 @@ export default function DocumentsPage() {
       }
     });
   }, [query, field, currentDocs, showCurrentOnly]);
+
+  // Update URL when path changes (for navigation)
+  useEffect(() => {
+    const newUrl = path.length > 0 
+      ? `/documents?path=${encodeURIComponent(path.join('/'))}`
+      : '/documents';
+    
+    // Update URL without triggering navigation
+    window.history.replaceState({}, '', newUrl);
+  }, [path]);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -728,6 +749,15 @@ export default function DocumentsPage() {
         </DialogContent>
       </Dialog>
     </AppLayout>
+  );
+}
+
+// Wrap in Suspense for useSearchParams
+export default function DocumentsPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <DocumentsPageContent />
+    </Suspense>
   );
 }
 

@@ -34,6 +34,7 @@ export default function DocumentDetailPage() {
   const doc = getDocumentById(params.id);
   const [ocrText, setOcrText] = useState<string>('');
   const [loadingExtraction, setLoadingExtraction] = useState<boolean>(false);
+  const [referrer, setReferrer] = useState<string | null>(null);
   const loadAttempted = useRef<Set<string>>(new Set());
 
   // Track when documents are loaded
@@ -42,6 +43,13 @@ export default function DocumentDetailPage() {
       setDocumentsLoaded(true);
     }
   }, [documents.length]);
+
+  // Set referrer on mount for smart back navigation
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setReferrer(document.referrer);
+    }
+  }, []);
 
   // Auto-load extraction content on page load
   useEffect(() => {
@@ -132,14 +140,60 @@ export default function DocumentDetailPage() {
   );
   }
 
-  // Create proper back navigation based on document's folder path
+  // Create proper back navigation based on referrer and document's folder path
   const folderPath = doc.folderPath || (doc as any).folder_path || [];
-  const backHref = folderPath.length > 0 
-    ? `/documents?path=${encodeURIComponent(folderPath.join('/'))}`
-    : '/documents';
-  const backLabel = folderPath.length > 0 
-    ? `Back to ${folderPath[folderPath.length - 1]}`
-    : 'Back to Documents';
+  
+  // Determine back navigation
+  let backHref: string;
+  let backLabel: string;
+  
+  if (referrer && typeof window !== 'undefined' && referrer.includes(window.location.origin)) {
+    // User came from our app
+    const referrerPath = new URL(referrer).pathname;
+    
+    try {
+      if (referrerPath.startsWith('/documents') && referrerPath !== '/documents') {
+        // Came from documents page - use folder path if available
+        if (folderPath.length > 0) {
+          backHref = `/documents?path=${encodeURIComponent(folderPath.join('/'))}`;
+          backLabel = `Back to ${folderPath[folderPath.length - 1]}`;
+        } else {
+          backHref = '/documents';
+          backLabel = 'Back to Documents';
+        }
+      } else if (referrerPath.startsWith('/dashboard')) {
+        // Came from dashboard
+        backHref = '/dashboard';
+        backLabel = 'Back to Dashboard';
+      } else if (referrerPath.startsWith('/audit')) {
+        // Came from audit page
+        backHref = '/audit';
+        backLabel = 'Back to Audit';
+      } else if (referrerPath.startsWith('/chat')) {
+        // Came from chat
+        backHref = '/chat';
+        backLabel = 'Back to Chat';
+      } else {
+        // Default fallback
+        backHref = '/documents';
+        backLabel = 'Back to Documents';
+      }
+    } catch (error) {
+      // If URL parsing fails, fallback to documents
+      console.warn('Failed to parse referrer URL:', error);
+      backHref = '/documents';
+      backLabel = 'Back to Documents';
+    }
+  } else {
+    // No referrer or external - use folder path if available
+    if (folderPath.length > 0) {
+      backHref = `/documents?path=${encodeURIComponent(folderPath.join('/'))}`;
+      backLabel = `Back to ${folderPath[folderPath.length - 1]}`;
+    } else {
+      backHref = '/documents';
+      backLabel = 'Back to Documents';
+    }
+  }
 
   return (
     <AppLayout>
