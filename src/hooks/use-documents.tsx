@@ -13,6 +13,7 @@ type DocumentsContextValue = {
   documents: StoredDocument[];
   folders: string[][];
   refresh: () => Promise<void>;
+  loadAllDocuments: () => Promise<void>;
   addDocument: (doc: Partial<StoredDocument>) => Promise<StoredDocument>;
   removeDocument: (id: string) => Promise<void>;
   removeDocuments: (ids: string[]) => Promise<{ deleted: number; storage_cleaned: number }>;
@@ -56,6 +57,20 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     const orgId = getOrgId();
     if (!orgId) return;
+    // Optimize: Load only recent 50 documents initially for faster login
+    const list = await apiFetch<any[]>(`/orgs/${orgId}/documents?limit=50`);
+    const revived = (list || []).map((d) => ({ 
+      ...d, 
+      uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
+    })) as StoredDocument[];
+    setDocuments(revived);
+    setFolders(prev => deriveFolders(revived, prev));
+  }, [deriveFolders]);
+
+  const loadAllDocuments = useCallback(async () => {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    // Load all documents when explicitly requested (e.g., for search)
     const list = await apiFetch<any[]>(`/orgs/${orgId}/documents`);
     const revived = (list || []).map((d) => ({ 
       ...d, 
@@ -65,10 +80,15 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     setFolders(prev => deriveFolders(revived, prev));
   }, [deriveFolders]);
 
+  // Load documents on mount
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // Load documents when org context changes, but with a small delay to not block login
   useEffect(() => {
-    const off = onApiContextChange(() => { void refresh(); });
+    const off = onApiContextChange(() => { 
+      // Add small delay to not block login completion
+      setTimeout(() => void refresh(), 100);
+    });
     return () => { off(); };
   }, [refresh]);
 
@@ -261,6 +281,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     documents,
     folders,
     refresh,
+    loadAllDocuments,
     addDocument,
     removeDocument,
     removeDocuments,
@@ -275,7 +296,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     linkAsNewVersion,
     unlinkFromVersionGroup,
     setCurrentVersion,
-  }), [documents, folders, refresh, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
+  }), [documents, folders, refresh, loadAllDocuments, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
 
   return <DocumentsContext.Provider value={value}>{children}</DocumentsContext.Provider>;
 }

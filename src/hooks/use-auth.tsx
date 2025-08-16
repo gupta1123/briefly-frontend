@@ -125,19 +125,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try { router.push('/no-access'); } catch {}
       }
       // Record login audit for the selected org (prevent duplicates within 60 seconds)
+      // Make this non-blocking to speed up login
       if (firstActiveOrg) {
         const now = Date.now();
         const timeSinceLastLogin = now - lastLoginLoggedAt;
         if (timeSinceLastLogin > 60000) { // 60 seconds
-          try {
-            await fetch(`${base}/orgs/${firstActiveOrg}/audit/login`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${data.session.access_token}` },
-            });
+          // Don't await - fire and forget for faster login
+          fetch(`${base}/orgs/${firstActiveOrg}/audit/login`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${data.session.access_token}` },
+          }).then(() => {
             setLastLoginLoggedAt(now);
-          } catch {
-            // non-blocking
-          }
+          }).catch(() => {
+            // non-blocking, ignore errors
+          });
         }
       }
       // Map highest org role to app role
