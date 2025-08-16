@@ -893,7 +893,7 @@ function UploadContent() {
                         </div>
                         <div className="w-40"><Progress value={item.progress} /></div>
                         <div className="flex items-center gap-2">
-                          {item.status === 'idle' && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
+                          {item.status === 'idle' && !isProcessingAll && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
                           {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
                           {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.filter((_, idx) => idx !== i))}>Remove</Button>}
                         </div>
