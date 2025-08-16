@@ -26,7 +26,9 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
   const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showExtracted, setShowExtracted] = useState(true);
+  // Start with file preview for previewable files, extracted content for others
+  const isPreviewable = mimeType === 'application/pdf' || mimeType?.startsWith('image/');
+  const [showExtracted, setShowExtracted] = useState(!isPreviewable);
   const [previewError, setPreviewError] = useState(false);
   const { toast } = useToast();
 
@@ -73,6 +75,13 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
   const isPDF = fileMetadata?.mimeType === 'application/pdf' || mimeType === 'application/pdf';
   const isImage = fileMetadata?.mimeType?.startsWith('image/') || mimeType?.startsWith('image/');
   const canPreview = isPDF || isImage;
+
+  // Auto-load file metadata for previewable files
+  useEffect(() => {
+    if (canPreview && !fileMetadata && !loading && !error) {
+      loadFileMetadata();
+    }
+  }, [canPreview, fileMetadata, loading, error]);
 
   // Show extracted content by default if no file preview available
   useEffect(() => {
