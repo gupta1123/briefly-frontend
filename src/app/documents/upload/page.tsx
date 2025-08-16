@@ -23,6 +23,7 @@ import { useDocuments } from '@/hooks/use-documents';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { computeContentHash } from '@/lib/utils';
+import { useCategories } from '@/hooks/use-categories';
 
 const toDataUri = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -49,6 +50,7 @@ function UploadContent() {
   const { toast } = useToast();
   const { addDocument, documents, linkAsNewVersion } = useDocuments();
   const router = useRouter();
+  const { categories } = useCategories();
   const [form, setForm] = useState({
     title: '',
     filename: '',
@@ -820,7 +822,18 @@ function UploadContent() {
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground">Category</label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.category || item.form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                            <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                              <UiSelectTrigger className="mt-1 w-full">
+                                <UiSelectValue placeholder="Select category..." />
+                              </UiSelectTrigger>
+                              <UiSelectContent>
+                                {categories.map((category) => (
+                                  <UiSelectItem key={category} value={category}>
+                                    {category}
+                                  </UiSelectItem>
+                                ))}
+                              </UiSelectContent>
+                            </UiSelect>
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground">Keywords (comma)</label>

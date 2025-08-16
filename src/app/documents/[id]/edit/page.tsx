@@ -12,11 +12,13 @@ import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiS
 import { formatAppDateTime } from '@/lib/utils';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
+import { useCategories } from '@/hooks/use-categories';
 
 export default function EditDocumentPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { getDocumentById, updateDocument, removeDocument, createFolder, documents, folders } = useDocuments();
+  const { categories } = useCategories();
   const doc = getDocumentById(params.id);
   const [saving, setSaving] = React.useState(false);
 
@@ -121,7 +123,18 @@ export default function EditDocumentPage() {
               </div>
               <div>
                 <label className="text-sm">Category</label>
-                <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                <UiSelect value={form.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                  <UiSelectTrigger className="w-full">
+                    <UiSelectValue placeholder="Select category..." />
+                  </UiSelectTrigger>
+                  <UiSelectContent>
+                    {categories.map((category) => (
+                      <UiSelectItem key={category} value={category}>
+                        {category}
+                      </UiSelectItem>
+                    ))}
+                  </UiSelectContent>
+                </UiSelect>
               </div>
               <div className="md:col-span-2">
                 <label className="text-sm">Description</label>

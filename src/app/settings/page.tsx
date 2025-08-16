@@ -20,6 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import CategoriesManagement from '@/components/categories-management';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -50,6 +51,19 @@ export default function SettingsPage() {
       } catch {}
     })();
   }, [addUser, isAuthenticated]);
+
+  // Load organization settings including categories
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin) return;
+    (async () => {
+      try {
+        const orgId = getApiContext().orgId || '';
+        if (!orgId) return;
+        const orgSettings = await apiFetch<any>(`/orgs/${orgId}/settings`);
+        setCategories(orgSettings.categories || []);
+      } catch {}
+    })();
+  }, [isAuthenticated, isAdmin]);
   const { policy, setEnabled, addIp, removeIp, replaceIps, getCurrentIp } = useSecurity();
   const { settings, updateSettings } = useSettings();
   const [color, setColor] = React.useState<string>('default');
@@ -65,6 +79,8 @@ export default function SettingsPage() {
   };
 
   const [chatFiltersEnabled, setChatFiltersEnabled] = React.useState<boolean>(false);
+  const [categories, setCategories] = React.useState<string[]>([]);
+  
   const applyChatFilters = (v: boolean) => {
     setChatFiltersEnabled(v);
     updateSettings({ chat_filters_enabled: v });
@@ -90,6 +106,7 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="appearance">Appearance</TabsTrigger>
           <TabsTrigger value="chat">Chat</TabsTrigger>
+          {isAdmin && <TabsTrigger value="categories">Categories</TabsTrigger>}
           {isAdmin && <TabsTrigger value="access">Network</TabsTrigger>}
           {isAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
         </TabsList>
@@ -189,6 +206,15 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
         </TabsContent>
+
+        {isAdmin && (
+        <TabsContent value="categories">
+          <CategoriesManagement 
+            categories={categories}
+            onCategoriesChange={setCategories}
+          />
+        </TabsContent>
+        )}
 
         {isAdmin && (
         <TabsContent value="users">

@@ -20,6 +20,7 @@ const ExtractDocumentMetadataInputSchema = z.object({
       "The document as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
   documentType: z.string().describe('The type of the document (e.g., invoice, government circular, PDF with handwritten text).'),
+  availableCategories: z.array(z.string()).optional().describe('Available categories for this organization')
 });
 export type ExtractDocumentMetadataInput = z.infer<
   typeof ExtractDocumentMetadataInputSchema
@@ -103,6 +104,16 @@ Rules:
 - Always output non-empty Title and Subject.
 - Always output at least 3 Keywords and 3 Tags; deduplicate and trim.
 - Prefer specific, grounded phrasing; avoid speculation.
+
+CATEGORY SELECTION:
+{{#if availableCategories}}
+For the category field, you MUST choose from this organization's predefined categories: {{#each availableCategories}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+- Select the most appropriate category based on the document content and type
+- If uncertain, default to "General"
+- Do NOT create new categories outside this list
+{{else}}
+For the category field, use "General" as the default category.
+{{/if}}
 
 Document Type: {{{documentType}}}
 Document: {{media url=documentDataUri}}

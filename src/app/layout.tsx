@@ -10,6 +10,7 @@ import { AuditProvider } from '@/hooks/use-audit';
 import { SecurityProvider } from '@/hooks/use-security';
 import { SettingsProvider } from '@/hooks/use-settings';
 import { DashboardStatsProvider } from '@/hooks/use-dashboard-stats';
+import { CategoriesProvider } from '@/hooks/use-categories';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -38,11 +39,13 @@ export default function RootLayout({
           <AuthProvider>
             <SettingsProvider>
               <SecurityProvider>
-                <AuditProvider>
-                  <DashboardStatsProvider>
-                    <DocumentsProvider>{children}</DocumentsProvider>
-                  </DashboardStatsProvider>
-                </AuditProvider>
+                <CategoriesProvider>
+                  <AuditProvider>
+                    <DashboardStatsProvider>
+                      <DocumentsProvider>{children}</DocumentsProvider>
+                    </DashboardStatsProvider>
+                  </AuditProvider>
+                </CategoriesProvider>
               </SecurityProvider>
             </SettingsProvider>
           </AuthProvider>
