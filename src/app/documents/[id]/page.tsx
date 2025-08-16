@@ -287,7 +287,7 @@ export default function DocumentDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
                       <MessageSquare className="h-3 w-3 flex-shrink-0" />
@@ -296,13 +296,13 @@ export default function DocumentDetailPage() {
                     <p className="font-medium break-words">{doc.subject || '—'}</p>
                   </div>
                   
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                   <div className="min-w-0">
+                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
                       <Calendar className="h-3 w-3 flex-shrink-0" />
                       Uploaded
-                    </p>
+                     </p>
                     <p className="font-medium">{formatAppDateTime(doc.uploadedAt)}</p>
-                  </div>
+                   </div>
                   
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
@@ -781,11 +781,11 @@ function LinkedList({ docId }: { docId: string }) {
       <div className="text-sm font-medium">Related Documents</div>
 
       {loading ? (
-        <div className="space-y-2">
+    <div className="space-y-2">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />
-        </div>
+          </div>
       ) : (
         <div className="space-y-4">
           {/* Outgoing Links - Documents this document links TO */}
@@ -797,33 +797,33 @@ function LinkedList({ docId }: { docId: string }) {
               <div className="space-y-2">
                 {relationships.outgoing.map(rel => (
                   <div key={rel.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
-                    <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1">
                       <div className="truncate font-medium" title={rel.title}>
                         {rel.title}
-                      </div>
+                  </div>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{rel.type}</span>
                         {rel.linkType && rel.linkType !== 'related' && <Badge variant="outline" className="text-xs">{rel.linkType}</Badge>}
                         {rel.versionNumber && <span>v{rel.versionNumber}</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-                        <Link href={`/documents/${rel.id}`}>View</Link>
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                        onClick={() => removeLink(rel.id)}
-                        title="Remove link"
-                      >
-                        ×
-                      </Button>
-                    </div>
                   </div>
-                ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                        <Link href={`/documents/${rel.id}`}>View</Link>
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => removeLink(rel.id)}
+                    title="Remove link"
+                  >
+                    ×
+                  </Button>
+                </div>
               </div>
+                ))}
+        </div>
             </div>
           )}
 
@@ -945,7 +945,7 @@ function LinkedList({ docId }: { docId: string }) {
 
           {/* No relationships */}
           {relationships.outgoing.length === 0 && relationships.incoming.length === 0 && relationships.versions.length === 0 && (
-            <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+        <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
               No related documents or versions found
             </div>
           )}

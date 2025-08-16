@@ -208,18 +208,8 @@ function UploadContent() {
       const ocrResult = { extractedText: analyzeResp.ocrText } as any;
       const metadataResult = analyzeResp.metadata as any;
 
-      // Ensure summary length target ~300 words
-      const normalizedSummary = (() => {
-        const s = (metadataResult.summary || '').trim();
-        const words = s.split(/\s+/).filter(Boolean);
-        if (words.length >= 240 && words.length <= 380) return s;
-        // If too short, pad with OCR text context; if too long, truncate.
-        if (words.length < 240) {
-          const extra = (ocrResult.extractedText || '').split(/\s+/).filter(Boolean).slice(0, 400 - words.length).join(' ');
-          return `${s}${extra ? '\n\n' + extra : ''}`.trim();
-        }
-        return words.slice(0, 340).join(' ');
-      })();
+      // Use the original summary without padding extra content
+      const summary = (metadataResult.summary || '').trim();
 
       // Prefill form for the active item
       const updatedForm = {
@@ -390,17 +380,8 @@ function UploadContent() {
     setQueue(prev => prev.map((q, i) => i === index ? { ...q, locked: true, status: 'saving' } : q));
     
     try {
-    // Normalize summary length to ~300 words to ensure consistency
-    const normalizedSummary = (() => {
-      const s = (item.extracted.metadata.summary || '').trim();
-      const words = s.split(/\s+/).filter(Boolean);
-      if (words.length >= 240 && words.length <= 380) return s;
-      if (words.length < 240) {
-        const extra = (item.extracted.ocrText || '').split(/\s+/).filter(Boolean).slice(0, 400 - words.length).join(' ');
-        return `${s}${extra ? '\n\n' + extra : ''}`.trim();
-      }
-      return words.slice(0, 340).join(' ');
-    })();
+    // Use the original summary without padding extra content
+    const summary = (item.extracted.metadata.summary || '').trim();
     const keywordsArray = form.keywords
       .split(',')
       .map(k => k.trim())
@@ -417,7 +398,7 @@ function UploadContent() {
       uploadedAt: new Date(),
       version: 1,
       keywords: (keywordsArray.length ? keywordsArray : (item.extracted.metadata.keywords || [])).filter(Boolean),
-      summary: normalizedSummary,
+      summary: summary,
       content: item.extracted.ocrText,
       title: form.title || item.extracted.metadata.title || item.file.name,
       filename: form.filename || item.file.name,
@@ -428,7 +409,7 @@ function UploadContent() {
       folder: 'root',
       folderPath,
       subject: form.subject || item.extracted.metadata.subject || (item.extracted.metadata.title || ''),
-      description: form.description || item.extracted.metadata.description || normalizedSummary,
+      description: form.description || item.extracted.metadata.description || summary,
       category: form.category || item.extracted.metadata.category,
       tags: (tagsArray.length ? tagsArray : (item.extracted.metadata.tags || [])).filter(Boolean),
       contentHash: item.hash,
