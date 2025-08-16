@@ -123,6 +123,82 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
     return null;
   };
 
+  const formatExtractedContent = (content: string) => {
+    const lines = content.split('\n').map(line => line.trim()).filter(Boolean);
+    const formatted: React.ReactNode[] = [];
+    
+    lines.forEach((line, index) => {
+      // Skip empty lines
+      if (!line) return;
+      
+      // Main headings (numbered or all caps)
+      if (line.match(/^\d+\)\s+/) || (line.length < 100 && line === line.toUpperCase() && line.includes(' '))) {
+        formatted.push(
+          <h3 key={index} className="text-lg font-semibold mt-6 mb-3 text-foreground border-b pb-1">
+            {line.replace(/^\d+\)\s*/, '')}
+          </h3>
+        );
+      }
+      // Sub-headings (letters or mixed case titles)
+      else if (line.match(/^[A-Z]\.\s+/) || (line.endsWith(':') && line.length < 80)) {
+        formatted.push(
+          <h4 key={index} className="text-base font-medium mt-4 mb-2 text-foreground">
+            {line.replace(/^[A-Z]\.\s*/, '').replace(/:$/, '')}
+          </h4>
+        );
+      }
+      // Bullet points (• or - or *)
+      else if (line.match(/^[•\-\*]\s+/)) {
+        formatted.push(
+          <div key={index} className="flex items-start gap-2 mb-2 ml-4">
+            <span className="text-primary mt-1.5 flex-shrink-0">•</span>
+            <span className="text-sm leading-relaxed">{line.replace(/^[•\-\*]\s+/, '')}</span>
+          </div>
+        );
+      }
+      // Numbered lists
+      else if (line.match(/^\d+[\.\)]\s+/)) {
+        const match = line.match(/^(\d+[\.\)])\s+(.+)/);
+        if (match) {
+          formatted.push(
+            <div key={index} className="flex items-start gap-2 mb-2 ml-4">
+              <span className="text-primary font-medium flex-shrink-0">{match[1]}</span>
+              <span className="text-sm leading-relaxed">{match[2]}</span>
+            </div>
+          );
+        }
+      }
+      // Special markers and section dividers
+      else if (line.match(/^(Flow|Categories|Roles|Features|Modules|Security|About|Deliverables|Core|Authentication|Services|DMS|Notifications|Languages):/i)) {
+        formatted.push(
+          <div key={index} className="mt-4 mb-2">
+            <span className="inline-block bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
+              {line}
+            </span>
+          </div>
+        );
+      }
+      // Parenthetical items like (iOS & Android)
+      else if (line.match(/^\([^)]+\)/) || line.match(/^[A-Z]+\s*\([^)]+\)/)) {
+        formatted.push(
+          <div key={index} className="text-sm text-muted-foreground mb-2 ml-6 italic">
+            {line}
+          </div>
+        );
+      }
+      // Regular paragraphs
+      else {
+        formatted.push(
+          <p key={index} className="text-sm leading-relaxed mb-3 text-muted-foreground">
+            {line}
+          </p>
+        );
+      }
+    });
+    
+    return formatted;
+  };
+
   const renderExtractedContent = () => {
     if (!extractedContent) {
       return (
@@ -134,9 +210,9 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
     }
 
     return (
-      <div className="prose prose-sm max-w-none">
-        <div className="whitespace-pre-wrap text-sm leading-relaxed">
-          {extractedContent}
+      <div className="max-w-none max-h-[70vh] overflow-y-auto">
+        <div className="space-y-1 pr-2">
+          {formatExtractedContent(extractedContent)}
         </div>
       </div>
     );
