@@ -78,10 +78,13 @@ export default function EditDocumentPage() {
     router.push('/documents');
   };
 
+  // Create proper back navigation to the document view
+  const backHref = `/documents/${doc?.id ?? ''}`;
+
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-6">
-        <PageHeader title="Edit Document" backHref={`/documents/${doc?.id ?? ''}`} backLabel="Back" sticky />
+        <PageHeader title="Edit Document" backHref={backHref} backLabel="Back to Document" sticky />
         <div className="px-4 md:px-6">
 
         {!doc ? (

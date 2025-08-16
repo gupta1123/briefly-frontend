@@ -132,13 +132,49 @@ export default function DocumentDetailPage() {
   );
   }
 
+  // Create proper back navigation based on document's folder path
+  const folderPath = doc.folderPath || (doc as any).folder_path || [];
+  const backHref = folderPath.length > 0 
+    ? `/documents?path=${encodeURIComponent(folderPath.join('/'))}`
+    : '/documents';
+  const backLabel = folderPath.length > 0 
+    ? `Back to ${folderPath[folderPath.length - 1]}`
+    : 'Back to Documents';
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 space-y-6">
+        {/* Breadcrumb Navigation */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+          <Button variant="ghost" size="sm" className="gap-2 p-2" asChild>
+            <Link href={backHref}>
+              <ArrowLeft className="h-4 w-4" />
+              {backLabel}
+            </Link>
+          </Button>
+          <span className="text-muted-foreground">•</span>
+          <nav className="flex items-center gap-1">
+            <Link href="/documents" className="hover:text-foreground">
+              Documents
+            </Link>
+            {folderPath.map((folder: string, index: number) => (
+              <React.Fragment key={index}>
+                <span>/</span>
+                <Link 
+                  href={`/documents?path=${encodeURIComponent(folderPath.slice(0, index + 1).join('/'))}`}
+                  className="hover:text-foreground"
+                >
+                  {folder}
+                </Link>
+              </React.Fragment>
+            ))}
+            <span>/</span>
+            <span className="text-foreground font-medium">{doc.title || doc.filename}</span>
+          </nav>
+        </div>
+
         <PageHeader
           title={doc.title || doc.name}
-          backHref="/documents"
-          backLabel="Back to Documents"
           meta={doc.versionGroupId ? (
             <span>Version {doc.versionNumber || doc.version}{doc.isCurrentVersion ? ' · Current' : ''}</span>
           ) : null}
@@ -304,13 +340,6 @@ export default function DocumentDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm">
-                 {/* Versions panel */}
-                 {doc.versionGroupId && (documents.filter(d => (d.versionGroupId || (d as any).version_group_id || d.id) === doc.versionGroupId).length > 1) && (
-                  <div className="mb-4">
-                    <p className="text-xs text-muted-foreground mb-2">Versions</p>
-                    <VersionsPanel docId={doc.id} />
-                  </div>
-                )}
                 <LinkedList docId={doc.id} />
               </CardContent>
             </Card>
@@ -632,7 +661,7 @@ function VersionsPanel({ docId }: { docId: string }) {
 }
 
 function LinkedList({ docId }: { docId: string }) {
-  const { getDocumentById, documents, refresh } = useDocuments();
+  const { getDocumentById, documents, refresh, unlinkFromVersionGroup } = useDocuments();
   const { toast } = useToast();
   const [relationships, setRelationships] = useState<{
     linked: any[],
@@ -641,6 +670,9 @@ function LinkedList({ docId }: { docId: string }) {
     outgoing: any[]
   }>({ linked: [], versions: [], incoming: [], outgoing: [] });
   const [loading, setLoading] = useState(true);
+  
+  // Get current document for version actions
+  const currentDoc = getDocumentById(docId);
   
   // Load relationships using the new endpoint
   const loadRelationships = useCallback(async () => {
@@ -793,32 +825,78 @@ function LinkedList({ docId }: { docId: string }) {
             </div>
           )}
 
-          {/* Version Siblings */}
-          {relationships.versions.length > 0 && (
+          {/* Version Management */}
+          {(relationships.versions.length > 0 || currentDoc?.versionGroupId) && (
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                <span>🔄</span> Other versions ({relationships.versions.length})
+                <span>📄</span> Version History
               </div>
-              <div className="space-y-2">
-                {relationships.versions.map(version => (
-                  <div key={version.id} className="flex items-center justify-between rounded-md border p-3 bg-background border-l-4 border-l-green-200">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium" title={version.title}>
-                        {version.title}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                        <span>v{version.versionNumber}</span>
-                        {version.isCurrentVersion && <Badge variant="default" className="text-xs">Current</Badge>}
-                        <span>{formatAppDateTime(new Date(version.uploadedAt))}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-                        <Link href={`/documents/${version.id}`}>View</Link>
-                      </Button>
-                    </div>
+              
+              {/* Current document version info */}
+              <div className="mb-3 p-3 rounded-md border bg-background/50 border-l-4 border-l-blue-500">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium" title={currentDoc?.title}>
+                    {currentDoc?.title || currentDoc?.filename || 'Untitled'}
                   </div>
-                ))}
+                  <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                    <span>v{currentDoc?.versionNumber || 1}</span>
+                    <Badge variant="default" className="text-xs">Current</Badge>
+                    <span>📍 You are here</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Other versions */}
+              {relationships.versions.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {relationships.versions
+                    .sort((a, b) => (b.versionNumber || 0) - (a.versionNumber || 0))
+                    .map(version => (
+                    <div key={version.id} className="flex items-center justify-between rounded-md border p-3 bg-background border-l-4 border-l-green-200">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium" title={version.title}>
+                          {version.title}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                          <span>v{version.versionNumber || 'Unknown'}</span>
+                          {version.isCurrentVersion && <Badge variant="outline" className="text-xs">Current</Badge>}
+                          <span>{formatAppDateTime(new Date(version.uploadedAt))}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                          <Link href={`/documents/${version.id}`}>View</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Version Actions */}
+              <div className="pt-2 border-t">
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="text-xs" asChild>
+                    <Link href={`/documents/upload?path=${encodeURIComponent(currentDoc?.folderPath?.join('/') || '')}&version=${docId}`}>
+                      + New Version
+                    </Link>
+                  </Button>
+                  {(relationships.versions.length > 0 || currentDoc?.versionGroupId) && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="text-xs text-destructive hover:text-destructive"
+                      onClick={() => {
+                        if (unlinkFromVersionGroup) {
+                          unlinkFromVersionGroup(docId);
+                          loadRelationships(); // Refresh after unlinking
+                        }
+                      }}
+                    >
+                      Unlink from Group
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}
