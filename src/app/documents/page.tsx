@@ -119,8 +119,10 @@ export default function DocumentsPage() {
 
   const filteredDocs = useMemo(() => {
     // When searching, search ALL documents across folders, not just current folder
-    const allDocs = showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents;
-    const base = query.trim() ? allDocs : (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs);
+    // Also filter out folder placeholder documents
+    const allDocs = (showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents)
+      .filter(d => d.type !== 'folder'); // Exclude folder placeholders
+    const base = query.trim() ? allDocs : (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false && d.type !== 'folder') : currentDocs.filter(d => d.type !== 'folder'));
     if (!query.trim()) return base;
     const q = query.toLowerCase();
     return base.filter(d => {

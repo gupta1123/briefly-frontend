@@ -268,111 +268,34 @@ export default function EditDocumentPage() {
                     </div>
                   )}
 
-                  {/* Smart Suggestions */}
+                  {/* Removed Smart Suggestions - users should search manually */}
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-2">
-                      Smart Suggestions
+                      Search and Link Documents
                 </div>
-                    <div className="space-y-2">
-                      {(() => {
-                        // Find documents with similar metadata
-                        const suggestions = documents
-                          .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
-                      .map(d => {
-                            let score = 0;
-                            let reasons = [];
-                            
-                            // Same sender/receiver
-                            if (doc.sender && d.sender === doc.sender) {
-                              score += 30;
-                              reasons.push(`Same sender: ${d.sender}`);
-                            }
-                            if (doc.receiver && d.receiver === doc.receiver) {
-                              score += 30;
-                              reasons.push(`Same receiver: ${d.receiver}`);
-                            }
-                            
-                            // Same category
-                            if (doc.category && d.category === doc.category) {
-                              score += 20;
-                              reasons.push(`Same category: ${d.category}`);
-                            }
-                            
-                            // Same document type
-                            if (doc.documentType && d.documentType === doc.documentType) {
-                              score += 15;
-                              reasons.push(`Same type: ${d.documentType}`);
-                            }
-                            
-                            // Version group (different versions of same document)
-                            if (d.versionGroupId && d.versionGroupId === doc.versionGroupId) {
-                              score += 50;
-                              reasons.push(`Same document (v${d.versionNumber || d.version || 1})`);
-                            }
-                            
-                            return { document: d, score, reasons: reasons.slice(0, 2) };
-                          })
-                          .filter(s => s.score > 15)
-                          .sort((a, b) => b.score - a.score)
-                          .slice(0, 5);
-
-                        if (suggestions.length === 0) {
-                        return (
-                            <div className="text-sm text-muted-foreground py-2 text-center border border-dashed rounded-md">
-                              No smart suggestions found. Use search below to find documents manually.
-                            </div>
-                          );
-                        }
-
-                        return suggestions.map(({ document: d, score, reasons }) => (
-                          <div key={d.id} className="flex items-start justify-between rounded-md border border-dashed p-2 bg-accent/5">
-                            <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                                <span className="truncate font-medium text-sm" title={d.title || d.name}>
-                                  {d.title || d.name}
-                                </span>
-                                <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
-                                  {score}% match
-                                </span>
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {reasons.map((reason, idx) => (
-                                  <div key={idx}>• {reason}</div>
-                                ))}
-                              </div>
-                            </div>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => setLinkedIds(prev => [...prev, d.id])}
-                              className="text-xs h-7"
-                            >
-                              Link
-                            </Button>
-                          </div>
-                        ));
-                      })()}
+                    <div className="text-sm text-muted-foreground py-2 text-center border border-dashed rounded-md">
+                      Use the search box below to find and link related documents.
                     </div>
                   </div>
 
-                  {/* Manual Search */}
+                  {/* Search */}
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-2">
-                      Manual Search
+                      Search
                     </div>
-                    <Input
+                  <Input
                       placeholder="Search by title, sender, or type..."
-                      value={linkQuery}
-                      onChange={(e) => setLinkQuery(e.target.value)}
+                    value={linkQuery}
+                    onChange={(e) => setLinkQuery(e.target.value)}
                       className="mb-2"
-                    />
+                  />
                     {linkQuery.trim() && (
                       <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
-                        {documents
+                    {documents
                           .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
                           .filter(d => {
                             const searchText = linkQuery.toLowerCase();
-                            return (
+                        return (
                               (d.title || d.name || '').toLowerCase().includes(searchText) ||
                               (d.sender || '').toLowerCase().includes(searchText) ||
                               (d.receiver || '').toLowerCase().includes(searchText) ||
@@ -390,7 +313,7 @@ export default function EditDocumentPage() {
                                   {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
                                   {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
                                 </div>
-                              </div>
+                            </div>
                               <Button 
                                 size="sm" 
                                 variant="default"

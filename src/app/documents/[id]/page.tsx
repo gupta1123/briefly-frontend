@@ -144,11 +144,11 @@ export default function DocumentDetailPage() {
           ) : null}
           actions={
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc)}>
-                <Download className="h-4 w-4" /> Download
-              </Button>
               {hasRoleAtLeast('contentManager') && (
                 <>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc)}>
+                    <Download className="h-4 w-4" /> Download
+                  </Button>
                   <Button variant="destructive" size="sm" className="gap-2" onClick={() => handleDelete(doc.id, removeDocument, router)}>
                     <Trash2 className="h-4 w-4" /> Delete
                   </Button>
@@ -388,8 +388,33 @@ export default function DocumentDetailPage() {
   );
 }
 
-function downloadContent(doc: any) {
+async function downloadContent(doc: any) {
   try {
+    const { orgId } = getApiContext();
+    if (!orgId) return;
+    
+    // Get the file URL from backend
+    const response = await apiFetch(`/orgs/${orgId}/documents/${doc.id}/file`);
+    if (response.url) {
+      // Download the actual file
+      const a = document.createElement('a');
+      a.href = response.url;
+      a.download = response.filename || doc.filename || doc.name || 'document';
+      a.target = '_blank'; // Open in new tab to handle CORS issues
+      a.click();
+    } else {
+      // Fallback to text content if no file URL
+      const blob = new Blob([doc.content || doc.summary || ''], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (doc.filename || doc.name || 'document') + '.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  } catch (error) {
+    console.error('Download failed:', error);
+    // Fallback to text content
     const blob = new Blob([doc.content || doc.summary || ''], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -397,7 +422,7 @@ function downloadContent(doc: any) {
     a.download = (doc.filename || doc.name || 'document') + '.txt';
     a.click();
     URL.revokeObjectURL(url);
-  } catch {}
+  }
 }
 
 function handleDelete(id: string, removeDocument: (id: string) => void, router: any) {
@@ -608,9 +633,6 @@ function VersionsPanel({ docId }: { docId: string }) {
 
 function LinkedList({ docId }: { docId: string }) {
   const { getDocumentById, documents, refresh } = useDocuments();
-  const [suggestions, setSuggestions] = React.useState<any[]>([]);
-  const [showSuggestions, setShowSuggestions] = React.useState(false);
-  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const { toast } = useToast();
   const base = getDocumentById(docId)!;
   const ids = base.linkedDocumentIds || [];
@@ -632,20 +654,7 @@ function LinkedList({ docId }: { docId: string }) {
     return d; // return as-is if no version group
   }).filter(Boolean);
 
-  const loadSuggestions = async () => {
-    setLoadingSuggestions(true);
-    try {
-      const { orgId } = getApiContext();
-      const response = await apiFetch(`/orgs/${orgId}/documents/${docId}/suggest-links`);
-      setSuggestions(response.suggestions || []);
-      setShowSuggestions(true);
-    } catch (error) {
-      console.error('Failed to load suggestions:', error);
-      toast({ title: 'Error', description: 'Failed to load link suggestions', variant: 'destructive' });
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  };
+
 
   const addLink = async (targetId: string, linkType: string = 'related') => {
     try {
@@ -684,19 +693,8 @@ function LinkedList({ docId }: { docId: string }) {
   
   return (
     <div className="space-y-3">
-      {/* Header with actions */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">Related Documents</div>
-        <Button 
-          size="sm" 
-          variant="outline" 
-          className="text-xs h-7"
-          onClick={loadSuggestions}
-          disabled={loadingSuggestions}
-        >
-          {loadingSuggestions ? 'Loading...' : '+ Suggest Links'}
-        </Button>
-      </div>
+      {/* Header */}
+      <div className="text-sm font-medium">Related Documents</div>
 
       {/* Existing Links */}
       {linkedDocs.length > 0 ? (
@@ -741,65 +739,7 @@ function LinkedList({ docId }: { docId: string }) {
         </div>
       )}
 
-      {/* Smart Suggestions */}
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-medium text-muted-foreground">
-              Suggested Links ({suggestions.length})
-            </div>
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="h-6 w-6 p-0 text-xs"
-              onClick={() => setShowSuggestions(false)}
-            >
-              ×
-            </Button>
-          </div>
-          {suggestions.map(suggestion => (
-            <div key={suggestion.id} className="rounded-md border border-dashed p-3 bg-accent/5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-sm mb-1">
-                    {suggestion.title}
-                  </div>
-                  <div className="text-xs text-muted-foreground mb-2">
-                    Score: {suggestion.score}% match
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {suggestion.reasons.map((reason: string, idx: number) => (
-                      <div key={idx} className="flex items-center gap-1">
-                        <span className="w-1 h-1 bg-current rounded-full"></span>
-                        {reason}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="h-7 px-2 text-xs"
-                    onClick={() => addLink(suggestion.id, suggestion.suggestedLinkType)}
-                  >
-                    Link
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-                    <Link href={`/documents/${suggestion.id}`}>View</Link>
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      {showSuggestions && suggestions.length === 0 && !loadingSuggestions && (
-        <div className="text-sm text-muted-foreground py-2 text-center">
-          No link suggestions found based on content similarity.
-        </div>
-      )}
     </div>
   );
 }

@@ -147,7 +147,13 @@ function UploadContent() {
     setQueue(prev => [...prev, ...deduped]);
   };
 
-  const onBrowse = () => inputRef.current?.click();
+  const onBrowse = () => {
+    // Clear the input value to allow selecting the same file again
+    if (inputRef.current) {
+      inputRef.current.value = '';
+      inputRef.current.click();
+    }
+  };
 
   const onDrop: React.DragEventHandler<HTMLDivElement> = async (e) => {
     e.preventDefault();

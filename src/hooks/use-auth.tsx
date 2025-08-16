@@ -30,6 +30,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastLoginLoggedAt, setLastLoginLoggedAt] = useState<number>(0);
   const router = useRouter();
 
   // On initial mount, restore session → set user
@@ -123,15 +124,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!firstActiveOrg) {
         try { router.push('/no-access'); } catch {}
       }
-      // Record login audit for the selected org
+      // Record login audit for the selected org (prevent duplicates within 60 seconds)
       if (firstActiveOrg) {
-        try {
-          await fetch(`${base}/orgs/${firstActiveOrg}/audit/login`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${data.session.access_token}` },
-          });
-        } catch {
-          // non-blocking
+        const now = Date.now();
+        const timeSinceLastLogin = now - lastLoginLoggedAt;
+        if (timeSinceLastLogin > 60000) { // 60 seconds
+          try {
+            await fetch(`${base}/orgs/${firstActiveOrg}/audit/login`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${data.session.access_token}` },
+            });
+            setLastLoginLoggedAt(now);
+          } catch {
+            // non-blocking
+          }
         }
       }
       // Map highest org role to app role
