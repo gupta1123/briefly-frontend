@@ -14,6 +14,7 @@ import { formatAppDateTime } from '@/lib/utils';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
 import { useCategories } from '@/hooks/use-categories';
+import { FileText, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, Link as LinkIcon } from 'lucide-react';
 
 export default function EditDocumentPage() {
   const params = useParams<{ id: string }>();
@@ -95,35 +96,59 @@ export default function EditDocumentPage() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm">Title</label>
+                <label className="text-sm flex items-center gap-1">
+                  <FileText className="h-4 w-4" />
+                  Title
+                </label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Filename</label>
+                <label className="text-sm flex items-center gap-1">
+                  <FileText className="h-4 w-4" />
+                  Filename
+                </label>
                 <Input value={form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Subject</label>
+                <label className="text-sm flex items-center gap-1">
+                  <MessageSquare className="h-4 w-4" />
+                  Subject
+                </label>
                 <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Sender</label>
+                <label className="text-sm flex items-center gap-1">
+                  <User className="h-4 w-4" />
+                  Sender
+                </label>
                 <Input value={form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Receiver</label>
+                <label className="text-sm flex items-center gap-1">
+                  <UserCheck className="h-4 w-4" />
+                  Receiver
+                </label>
                 <Input value={form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Document Date</label>
+                <label className="text-sm flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  Document Date
+                </label>
                 <Input value={form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Document Type</label>
+                <label className="text-sm flex items-center gap-1">
+                  <Tag className="h-4 w-4" />
+                  Document Type
+                </label>
                 <Input value={form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Category</label>
+                <label className="text-sm flex items-center gap-1">
+                  <Bookmark className="h-4 w-4" />
+                  Category
+                </label>
                 <UiSelect value={form.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
                   <UiSelectTrigger className="w-full">
                     <UiSelectValue placeholder="Select category..." />
@@ -138,15 +163,24 @@ export default function EditDocumentPage() {
                 </UiSelect>
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm">Description</label>
+                <label className="text-sm flex items-center gap-1">
+                  <MessageSquare className="h-4 w-4" />
+                  Description
+                </label>
                 <Textarea rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Keywords (comma separated)</label>
+                <label className="text-sm flex items-center gap-1">
+                  <Hash className="h-4 w-4" />
+                  Keywords (comma separated)
+                </label>
                 <Input value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
               </div>
               <div>
-                <label className="text-sm">Tags (comma separated)</label>
+                <label className="text-sm flex items-center gap-1">
+                  <Tag className="h-4 w-4" />
+                  Tags (comma separated)
+                </label>
                 <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
               </div>
               <div className="md:col-span-2">
@@ -166,7 +200,10 @@ export default function EditDocumentPage() {
                 <p className="mt-1 text-xs text-muted-foreground">Choose existing or type a new nested path. New folders will be created automatically.</p>
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm font-medium">Document Relationships</label>
+                <label className="text-sm font-medium flex items-center gap-1">
+                  <LinkIcon className="h-4 w-4" />
+                  Document Relationships
+                </label>
                 <div className="mt-3 space-y-4">
                   
                   {/* Current Links */}
@@ -176,7 +213,7 @@ export default function EditDocumentPage() {
                         Currently Linked ({linkedIds.length})
                       </div>
                       <div className="space-y-2">
-                        {linkedIds.map(id => {
+                  {linkedIds.map(id => {
                           const d = documents.find(x => x.id === id);
                           if (!d) return null;
                           
@@ -186,7 +223,7 @@ export default function EditDocumentPage() {
                             (docItem.versionGroupId || (docItem as any).version_group_id) === d.versionGroupId
                           ).sort((a, b) => (a.versionNumber || a.version || 1) - (b.versionNumber || b.version || 1));
                           
-                          return (
+                    return (
                             <div key={id} className="flex items-center justify-between rounded-md border p-2 bg-background">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
@@ -201,7 +238,7 @@ export default function EditDocumentPage() {
                                   {d.versionGroupId && !isVersioned && (
                                     <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
                                       v{d.versionNumber || d.version || 1}
-                                    </span>
+                      </span>
                                   )}
                                 </div>
                                 <div className="text-xs text-muted-foreground mt-1">
@@ -225,8 +262,8 @@ export default function EditDocumentPage() {
                                 </Button>
                               </div>
                             </div>
-                          );
-                        })}
+                    );
+                  })}
                       </div>
                     </div>
                   )}
@@ -235,13 +272,13 @@ export default function EditDocumentPage() {
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-2">
                       Smart Suggestions
-                    </div>
+                </div>
                     <div className="space-y-2">
                       {(() => {
                         // Find documents with similar metadata
                         const suggestions = documents
                           .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
-                          .map(d => {
+                      .map(d => {
                             let score = 0;
                             let reasons = [];
                             
@@ -280,7 +317,7 @@ export default function EditDocumentPage() {
                           .slice(0, 5);
 
                         if (suggestions.length === 0) {
-                          return (
+                        return (
                             <div className="text-sm text-muted-foreground py-2 text-center border border-dashed rounded-md">
                               No smart suggestions found. Use search below to find documents manually.
                             </div>
@@ -290,7 +327,7 @@ export default function EditDocumentPage() {
                         return suggestions.map(({ document: d, score, reasons }) => (
                           <div key={d.id} className="flex items-start justify-between rounded-md border border-dashed p-2 bg-accent/5">
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                                 <span className="truncate font-medium text-sm" title={d.title || d.name}>
                                   {d.title || d.name}
                                 </span>

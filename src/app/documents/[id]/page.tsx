@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Download, Pencil, Trash2, Copy, FileText as FileTextIcon } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Trash2, Copy, FileText as FileTextIcon, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, MapPin, Info, FileType, HardDrive, Link as LinkIcon } from 'lucide-react';
 import { useDocuments } from '@/hooks/use-documents';
 import React, { useEffect, useState, useRef } from 'react';
 import { apiFetch, getApiContext } from '@/lib/api';
@@ -116,8 +116,8 @@ export default function DocumentDetailPage() {
   // Show not found if documents are loaded but document doesn't exist
   if (!doc) {
     return (
-      <AppLayout>
-        <div className="p-4 md:p-6">
+    <AppLayout>
+      <div className="p-4 md:p-6">
           <div className="text-center py-12">
             <div className="text-lg font-medium text-muted-foreground mb-2">Document not found</div>
             <div className="text-sm text-muted-foreground mb-4">
@@ -127,9 +127,9 @@ export default function DocumentDetailPage() {
               <Link href="/documents">Back to Documents</Link>
             </Button>
           </div>
-        </div>
-      </AppLayout>
-    );
+      </div>
+    </AppLayout>
+  );
   }
 
   return (
@@ -170,7 +170,10 @@ export default function DocumentDetailPage() {
           <div className="xl:col-span-3 space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Location</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5" />
+                  Location
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 {doc.folderPath && doc.folderPath.length > 0 ? (
@@ -188,28 +191,46 @@ export default function DocumentDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Details</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Info className="h-5 w-5" />
+                  Details
+                </CardTitle>
               </CardHeader>
               <CardContent>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Subject</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" />
+                      Subject
+                    </p>
                     <p className="font-medium">{doc.subject || '—'}</p>
                   </div>
                    <div>
-                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Keywords</p>
+                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
+                       <Hash className="h-3 w-3" />
+                       Keywords
+                     </p>
                      <p className="font-medium">{(doc.keywords || []).join(', ') || '—'}</p>
                    </div>
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Sender</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      Sender
+                    </p>
                     <p className="font-medium">{doc.sender || 'N/A'}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Receiver</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
+                      <UserCheck className="h-3 w-3" />
+                      Receiver
+                    </p>
                     <p className="font-medium">{doc.receiver || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Uploaded</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      Uploaded
+                    </p>
                     <p className="font-medium">{formatAppDateTime(doc.uploadedAt)}</p>
                   </div>
                 </div>
@@ -218,7 +239,10 @@ export default function DocumentDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Metadata & Tags</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Tag className="h-5 w-5" />
+                  Metadata & Tags
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
                 {doc.description && (
@@ -274,7 +298,10 @@ export default function DocumentDetailPage() {
 
             <Card id="linked">
               <CardHeader>
-                <CardTitle>Linked Documents</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <LinkIcon className="h-5 w-5" />
+                  Linked Documents
+                </CardTitle>
               </CardHeader>
               <CardContent className="text-sm">
                  {/* Versions panel */}
@@ -290,22 +317,52 @@ export default function DocumentDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>File Info</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileTextIcon className="h-5 w-5" />
+                  File Info
+                </CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 {doc.filename && (
                   <div className="md:col-span-2 grid grid-cols-4 items-start gap-3">
-                    <span className="text-muted-foreground col-span-1">Filename</span>
+                    <span className="text-muted-foreground col-span-1 flex items-center gap-1">
+                      <FileTextIcon className="h-3 w-3" />
+                      Filename
+                    </span>
                     <span className="font-medium col-span-3 break-words">{doc.filename}</span>
                   </div>
                 )}
-                <div className="flex justify-between"><span className="text-muted-foreground">Created</span><span className="font-medium">{formatAppDateTime(doc.uploadedAt)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span className="font-medium">{doc.documentType || doc.type}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Created
+                  </span>
+                  <span className="font-medium">{formatAppDateTime(doc.uploadedAt)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <Tag className="h-3 w-3" />
+                    Type
+                  </span>
+                  <span className="font-medium">{doc.documentType || doc.type}</span>
+                </div>
                 {doc.fileSizeBytes !== undefined && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">File Size</span><span className="font-medium">{formatSize(doc.fileSizeBytes)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <HardDrive className="h-3 w-3" />
+                      File Size
+                    </span>
+                    <span className="font-medium">{formatSize(doc.fileSizeBytes)}</span>
+                  </div>
                 )}
                 {doc.mimeType && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">MIME Type</span><span className="font-medium">{doc.mimeType}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <FileType className="h-3 w-3" />
+                      MIME Type
+                    </span>
+                    <span className="font-medium">{doc.mimeType}</span>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -318,7 +375,7 @@ export default function DocumentDetailPage() {
               mimeType={doc.mimeType}
               extractedContent={doc.content || ocrText || undefined}
             />
-          </div>
+                </div>
         </div>
       </div>
     </AppLayout>
@@ -462,35 +519,35 @@ function VersionsPanel({ docId }: { docId: string }) {
                           {v.documentType}
                         </div>
                       )}
-                    </div>
+          </div>
 
                     {/* Action Buttons */}
-                    <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1">
                       {/* Reorder buttons - only show if there are multiple versions */}
                       {totalVersions > 1 && (
                         <>
-                          {index > 0 && (
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
+            {index > 0 && (
+              <Button 
+                size="sm" 
+                variant="ghost" 
                               className="h-7 w-7 p-0"
                               onClick={() => moveVersion(versionNum, versions[index-1].versionNumber || versions[index-1].version || 1, v.id)}
                               title="Move up in timeline"
-                            >
-                              ↑
-                            </Button>
-                          )}
-                          {index < versions.length - 1 && (
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
+              >
+                ↑
+              </Button>
+            )}
+            {index < versions.length - 1 && (
+              <Button 
+                size="sm" 
+                variant="ghost" 
                               className="h-7 w-7 p-0"
                               onClick={() => moveVersion(versionNum, versions[index+1].versionNumber || versions[index+1].version || 1, v.id)}
                               title="Move down in timeline"
-                            >
-                              ↓
-                            </Button>
-                          )}
+              >
+                ↓
+              </Button>
+            )}
                         </>
                       )}
                       
@@ -507,7 +564,7 @@ function VersionsPanel({ docId }: { docId: string }) {
                       
                       {!isActive && (
                         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-                          <Link href={`/documents/${v.id}`}>View</Link>
+              <Link href={`/documents/${v.id}`}>View</Link>
                         </Button>
                       )}
                     </div>
@@ -637,21 +694,21 @@ function LinkedList({ docId }: { docId: string }) {
 
       {/* Existing Links */}
       {linkedDocs.length > 0 ? (
-        <div className="space-y-2">
+    <div className="space-y-2">
           <div className="text-xs text-muted-foreground">
             {linkedDocs.length} linked document{linkedDocs.length !== 1 ? 's' : ''}
           </div>
-          {linkedDocs.map(d => {
-            if (!d) return null;
-            return (
+      {linkedDocs.map(d => {
+        if (!d) return null;
+        return (
               <div key={d.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium" title={d.title || d.name}>
                     {d.title || d.name}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
-                    {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
+                {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
+                {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">

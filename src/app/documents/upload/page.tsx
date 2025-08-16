@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import AppLayout from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Check, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, Check, UploadCloud, X, FileText, User, UserCheck, Calendar, Tag, FolderOpen, MessageSquare, Hash, Bookmark, Link as LinkIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
  
@@ -693,51 +693,96 @@ function UploadContent() {
                               </div>
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Title</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <FileText className="h-3 w-3" />
+                                Title
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Filename</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <FileText className="h-3 w-3" />
+                                Filename
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Sender</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <User className="h-3 w-3" />
+                                Sender
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Receiver</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <UserCheck className="h-3 w-3" />
+                                Receiver
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Document Date</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                Document Date
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Document Type</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Tag className="h-3 w-3" />
+                                Document Type
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground">Subject</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <MessageSquare className="h-3 w-3" />
+                                Subject
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground">Description</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <MessageSquare className="h-3 w-3" />
+                                Description
+                              </label>
                               <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Category</label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.category || item.form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Bookmark className="h-3 w-3" />
+                                Category
+                              </label>
+                              <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                                <UiSelectTrigger className="mt-1 w-full">
+                                  <UiSelectValue placeholder="Select category..." />
+                                </UiSelectTrigger>
+                                <UiSelectContent>
+                                  {categories.map((category) => (
+                                    <UiSelectItem key={category} value={category}>
+                                      {category}
+                                    </UiSelectItem>
+                                  ))}
+                                </UiSelectContent>
+                              </UiSelect>
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground">Keywords (comma)</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Hash className="h-3 w-3" />
+                                Keywords (comma)
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground">Tags (comma)</label>
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Tag className="h-3 w-3" />
+                                Tags (comma)
+                              </label>
                               <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground">
+                              <label className="text-xs text-muted-foreground flex items-center gap-1">
+                                <FolderOpen className="h-3 w-3" />
                                 Upload Destination
                                 {folderPath.length > 0 && (
                                   <span className="ml-2 text-primary font-medium">
@@ -795,39 +840,66 @@ function UploadContent() {
                       {item.status === 'ready' && item.form && (
                         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-muted-foreground">Title</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <FileText className="h-3 w-3" />
+                              Title
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Filename</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <FileText className="h-3 w-3" />
+                              Filename
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Sender</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <User className="h-3 w-3" />
+                              Sender
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Receiver</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <UserCheck className="h-3 w-3" />
+                              Receiver
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Document Date</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              Document Date
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Document Type</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Tag className="h-3 w-3" />
+                              Document Type
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
                           </div>
                           <div className="md:col-span-2">
-                            <label className="text-xs text-muted-foreground">Subject</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <MessageSquare className="h-3 w-3" />
+                              Subject
+                            </label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
                           </div>
                           <div className="md:col-span-2">
-                            <label className="text-xs text-muted-foreground">Description</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <MessageSquare className="h-3 w-3" />
+                              Description
+                            </label>
                             <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground">Category</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Bookmark className="h-3 w-3" />
+                              Category
+                            </label>
                             <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
                               <UiSelectTrigger className="mt-1 w-full">
                                 <UiSelectValue placeholder="Select category..." />
@@ -852,7 +924,10 @@ function UploadContent() {
                           
                           {/* Linking Options */}
                           <div className="md:col-span-2">
-                            <label className="text-xs text-muted-foreground">Document Relationship</label>
+                            <label className="text-xs text-muted-foreground flex items-center gap-1">
+                              <LinkIcon className="h-3 w-3" />
+                              Document Relationship
+                            </label>
                             <div className="mt-2 flex items-center gap-4">
                               <label className="flex items-center gap-2 text-sm">
                                 <input 

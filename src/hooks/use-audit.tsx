@@ -30,7 +30,7 @@ const AuditContext = createContext<AuditContextValue | undefined>(undefined);
 
 export function AuditProvider({ children }: { children: React.ReactNode }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [includeSelf, setIncludeSelf] = useState<boolean>(true);
+  const [includeSelf, setIncludeSelf] = useState<boolean>(false);
 
   const fetchServerAudit = useCallback(async () => {
     try {
