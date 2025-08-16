@@ -395,8 +395,19 @@ export default function DocumentsPage() {
                     if (!name) { toast({ title: 'Please enter a folder name', variant: 'destructive' }); return; }
                     if (name.includes('/')) { toast({ title: 'Folder name cannot contain /', variant: 'destructive' }); return; }
                     if (name.length > 100) { toast({ title: 'Folder name too long (max 100 characters)', variant: 'destructive' }); return; }
-                    const exists = listFolders(path).some(p => (p[p.length - 1]).toLowerCase() === name.toLowerCase());
-                    if (exists) { toast({ title: 'Folder already exists' }); return; }
+                    
+                    // Check for existing folders (case-insensitive)
+                    const existingFolders = listFolders(path);
+                    const normalizedName = name.toLowerCase().trim();
+                    const exists = existingFolders.some(p => (p[p.length - 1] || '').toLowerCase().trim() === normalizedName);
+                    if (exists) { 
+                      toast({ 
+                        title: 'Folder already exists', 
+                        description: `A folder named "${name}" already exists in this location.`,
+                        variant: 'destructive' 
+                      }); 
+                      return; 
+                    }
                     
                     try {
                       console.log('Creating folder with path:', path, 'Type:', typeof path, 'Is Array:', Array.isArray(path));
@@ -405,11 +416,27 @@ export default function DocumentsPage() {
                       setNewFolderName('');
                       setNewFolderOpen(false);
                       toast({ title: 'Folder created' });
-                    } catch (error) {
+                    } catch (error: any) {
                       console.error('Failed to create folder:', error);
+                      
+                      // Extract user-friendly error message
+                      let errorMessage = 'Unknown error occurred';
+                      if (error?.data?.message) {
+                        errorMessage = error.data.message;
+                      } else if (error?.data?.error) {
+                        errorMessage = error.data.error;
+                      } else if (error instanceof Error) {
+                        errorMessage = error.message;
+                      }
+                      
+                      // Handle specific error cases
+                      if (error?.status === 409 || errorMessage.includes('already exists')) {
+                        errorMessage = `Folder "${name}" already exists in this location.`;
+                      }
+                      
                       toast({ 
                         title: 'Failed to create folder', 
-                        description: error instanceof Error ? error.message : 'Unknown error',
+                        description: errorMessage,
                         variant: 'destructive' 
                       });
                     }
