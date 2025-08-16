@@ -95,7 +95,7 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
 
     if (isPDF) {
       return (
-        <div className="w-full h-full min-h-[600px] border rounded-md overflow-hidden">
+        <div className="w-full h-[70vh] border rounded-md overflow-hidden">
           <iframe
             src={fileMetadata.url}
             className="w-full h-full"
@@ -112,7 +112,7 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
           <img
             src={fileMetadata.url}
             alt="Document preview"
-            className="max-w-full max-h-[600px] object-contain"
+            className="max-w-full max-h-[70vh] object-contain"
             onError={() => setPreviewError(true)}
             onLoad={() => setPreviewError(false)}
           />
@@ -176,18 +176,13 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
               </div>
             )}
             
-            {/* Load/Download button */}
-            {!fileMetadata && !loading && (
+
+            
+            {/* Manual load button for non-auto-loading cases */}
+            {!fileMetadata && !loading && !canPreview && (
               <Button size="sm" onClick={loadFileMetadata} variant="outline">
                 <Eye className="h-4 w-4 mr-1" />
-                Preview File
-              </Button>
-            )}
-            
-            {fileMetadata && (
-              <Button size="sm" onClick={downloadFile} variant="outline">
-                <Download className="h-4 w-4 mr-1" />
-                Download
+                Load File
               </Button>
             )}
           </div>
@@ -195,23 +190,23 @@ export default function FilePreview({ documentId, mimeType, extractedContent, cl
         
         {/* File info */}
         {fileMetadata && (
-          <div className="text-xs text-muted-foreground">
-            {fileMetadata.filename} • {fileMetadata.mimeType}
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>{fileMetadata.filename} • {fileMetadata.mimeType}</div>
             {canPreview && !showExtracted && (
-              <span className="ml-2 text-blue-600">Live preview (expires {new Date(fileMetadata.expires).toLocaleTimeString()})</span>
+              <div className="text-blue-600">Live preview (expires {new Date(fileMetadata.expires).toLocaleTimeString()})</div>
             )}
           </div>
         )}
       </CardHeader>
       
-      <CardContent>
+      <CardContent className="p-4">
         {loading && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
               Loading file preview...
             </div>
-            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-[60vh] w-full" />
           </div>
         )}
         

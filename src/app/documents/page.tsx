@@ -9,7 +9,7 @@ import { useSettings } from '@/hooks/use-settings';
 import type { StoredDocument } from '@/lib/types';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Plus, Grid2X2, List, Grid3X3, Folder as FolderIcon, FileText, Trash2 } from 'lucide-react';
+import { Plus, Grid2X2, List, Grid3X3, Folder as FolderIcon, FileText, Trash2, ArrowLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -255,12 +255,25 @@ export default function DocumentsPage() {
   return (
     <AppLayout>
       <div className="p-4 md:p-6 space-y-6">
-        {/* Breadcrumbs */}
-        <div className="text-sm text-muted-foreground">
-          <button className="text-primary hover:underline" onClick={() => setPath([])}>Root</button>
-          {path.map((seg, i) => (
-            <span key={i} className="ml-2">/ <button className="hover:underline" onClick={() => setPath(path.slice(0, i + 1))}>{seg}</button></span>
-          ))}
+        {/* Navigation Header with Back Button */}
+        <div className="flex items-center gap-4">
+          {path.length > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setPath(path.slice(0, -1))}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          )}
+          <div className="text-sm text-muted-foreground">
+            <button className="text-primary hover:underline" onClick={() => setPath([])}>Root</button>
+            {path.map((seg, i) => (
+              <span key={i} className="ml-2">/ <button className="hover:underline" onClick={() => setPath(path.slice(0, i + 1))}>{seg}</button></span>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">

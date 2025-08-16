@@ -165,9 +165,9 @@ export default function DocumentDetailPage() {
           sticky
         />
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-          {/* Left stack */}
-          <div className="xl:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
+          {/* Left stack - 60% */}
+          <div className="xl:col-span-3 space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Location</CardTitle>
@@ -311,8 +311,8 @@ export default function DocumentDetailPage() {
             </Card>
           </div>
 
-          {/* Right column - File Preview */}
-          <div className="xl:col-span-1">
+          {/* Right column - File Preview - 40% */}
+          <div className="xl:col-span-2">
             <FilePreview 
               documentId={doc.id}
               mimeType={doc.mimeType}
