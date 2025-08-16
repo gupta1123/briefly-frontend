@@ -143,11 +143,14 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
         id: assistantId,
         role: 'assistant',
         content: '',
-        citations: citations?.slice(0, 3).map(c => ({
-          docId: structuredDocs[c.docIndex]?.id,
-          docName: structuredDocs[c.docIndex]?.title || structuredDocs[c.docIndex]?.name,
-          snippet: c.snippet,
-        })),
+        citations: citations?.slice(0, 3).map(c => {
+          const doc = structuredDocs[c.docIndex];
+          return doc ? {
+            docId: doc.id,
+            docName: doc.title || doc.name,
+            snippet: c.snippet,
+          } : null;
+        }).filter(Boolean),
         csv: exportCsv ? buildCsvFromDocs(toSend) : undefined,
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -446,7 +449,11 @@ function renderSourcesAndCitations(message: Message) {
               <span className="font-medium">{c.docName || 'Document'}</span>
               {c.snippet ? <>: {c.snippet}</> : null}
               {c.docId ? (
-                <a className="ml-2 underline" href={`/documents/${c.docId}`}>view</a>
+                <a className="ml-2 underline" href={`/documents/${c.docId}`} onClick={(e) => {
+                  // Verify document exists before navigation
+                  e.preventDefault();
+                  window.location.href = `/documents/${c.docId}`;
+                }}>view</a>
               ) : null}
             </div>
           </div>
@@ -460,7 +467,15 @@ function renderSourcesAndCitations(message: Message) {
         <CardContent className="pb-4 px-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {message.citations!.map((c, i) => (
-              <a key={i} href={c.docId ? `/documents/${c.docId}` : '#'} className="group block rounded-md border bg-background hover:bg-accent transition-colors">
+              <a key={i} href={c.docId ? `/documents/${c.docId}` : '#'} 
+                className="group block rounded-md border bg-background hover:bg-accent transition-colors"
+                onClick={(e) => {
+                  if (!c.docId) {
+                    e.preventDefault();
+                    return;
+                  }
+                  // Let the navigation proceed normally for valid docIds
+                }}>
                 <div className="flex items-center gap-2 p-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   <div className="min-w-0">

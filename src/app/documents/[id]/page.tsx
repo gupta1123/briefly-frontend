@@ -9,12 +9,13 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Download, Pencil, Trash2, Copy, FileText as FileTextIcon } from 'lucide-react';
 import { useDocuments } from '@/hooks/use-documents';
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { formatAppDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
+import { useToast } from '@/hooks/use-toast';
 
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();

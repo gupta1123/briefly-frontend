@@ -389,6 +389,12 @@ function UploadContent() {
       return;
     }
 
+    // Version linking validation
+    if (item.linkMode === 'version' && !item.baseId) {
+      toast({ title: 'Version linking error', description: 'Please select a document to link this as a new version, or choose "New Document".', variant: 'destructive' });
+      return;
+    }
+
     if (item.linkMode === 'version' && item.baseId) {
       linkAsNewVersion(item.baseId, newDoc as any);
     } else {
@@ -842,6 +848,48 @@ function UploadContent() {
                           <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground">Tags (comma)</label>
                             <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                          </div>
+                          
+                          {/* Linking Options */}
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-muted-foreground">Document Relationship</label>
+                            <div className="mt-2 flex items-center gap-4">
+                              <label className="flex items-center gap-2 text-sm">
+                                <input 
+                                  type="radio" 
+                                  checked={item.linkMode === 'new'} 
+                                  onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'new' } : q))} 
+                                /> 
+                                New Document
+                              </label>
+                              <label className={`flex items-center gap-2 text-sm ${documents.length === 0 ? 'opacity-50' : ''}`}>
+                                <input 
+                                  type="radio" 
+                                  disabled={documents.length === 0} 
+                                  checked={item.linkMode === 'version'} 
+                                  onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'version' } : q))} 
+                                /> 
+                                Link as New Version
+                              </label>
+                              {item.linkMode === 'version' && documents.length > 0 && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => setPickerOpenIndex(i)}
+                                  className="text-xs h-7"
+                                >
+                                  {item.baseId ? 
+                                    `Selected: ${documents.find(d => d.id === item.baseId)?.title || documents.find(d => d.id === item.baseId)?.name || 'Unknown'}` :
+                                    'Select Document'
+                                  }
+                                </Button>
+                              )}
+                            </div>
+                            {item.linkMode === 'version' && !item.baseId && (
+                              <div className="mt-1 text-xs text-destructive">
+                                Please select a document to link this as a new version.
+                              </div>
+                            )}
                           </div>
                           <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground">

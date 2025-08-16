@@ -82,7 +82,9 @@ export default function DocumentsPage() {
   const router = useRouter();
 
   const filteredDocs = useMemo(() => {
-    const base = showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs;
+    // When searching, search ALL documents across folders, not just current folder
+    const allDocs = showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents;
+    const base = query.trim() ? allDocs : (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs);
     if (!query.trim()) return base;
     const q = query.toLowerCase();
     return base.filter(d => {
@@ -267,7 +269,14 @@ export default function DocumentsPage() {
             <Link href={`/documents/upload${path.length ? `?path=${encodeURIComponent(path.join('/'))}` : ''}`}><Plus className="h-4 w-4" /> Upload Document</Link>
           </Button>
           )}
-          <Input placeholder="Search documents..." className="max-w-md" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="relative max-w-md">
+            <Input placeholder="Search documents..." value={query} onChange={(e) => setQuery(e.target.value)} />
+            {query.trim() && (
+              <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-accent text-accent-foreground text-xs rounded-md">
+                🔍 Searching all folders ({filteredDocs.length} results)
+              </div>
+            )}
+          </div>
           <Select value={field} onValueChange={(v) => setField(v as any)}>
             <SelectTrigger className="w-40"><SelectValue placeholder="All Fields" /></SelectTrigger>
             <SelectContent>
