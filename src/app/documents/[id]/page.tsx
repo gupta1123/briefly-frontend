@@ -287,7 +287,7 @@ export default function DocumentDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
                       <MessageSquare className="h-3 w-3 flex-shrink-0" />
@@ -295,13 +295,15 @@ export default function DocumentDetailPage() {
                     </p>
                     <p className="font-medium break-words">{doc.subject || '—'}</p>
                   </div>
-                   <div className="min-w-0">
-                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
-                       <Hash className="h-3 w-3 flex-shrink-0" />
-                       Keywords
-                     </p>
-                     <p className="font-medium break-words">{(doc.keywords || []).join(', ') || '—'}</p>
-                   </div>
+                  
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
+                      <Calendar className="h-3 w-3 flex-shrink-0" />
+                      Uploaded
+                    </p>
+                    <p className="font-medium">{formatAppDateTime(doc.uploadedAt)}</p>
+                  </div>
+                  
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
                       <User className="h-3 w-3 flex-shrink-0" />
@@ -315,13 +317,6 @@ export default function DocumentDetailPage() {
                       Receiver
                     </p>
                     <p className="font-medium break-words">{doc.receiver || '—'}</p>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide flex items-center gap-1 mb-1">
-                      <Calendar className="h-3 w-3 flex-shrink-0" />
-                      Uploaded
-                    </p>
-                    <p className="font-medium">{formatAppDateTime(doc.uploadedAt)}</p>
                   </div>
                 </div>
               </CardContent>
@@ -357,14 +352,7 @@ export default function DocumentDetailPage() {
                   </div>
                 )}
 
-                {(doc.keywords && doc.keywords.length > 0) && (
-                  <div>
-                    <div className="font-semibold mb-1">Keywords</div>
-                    <div className="flex flex-wrap gap-2">
-                      {doc.keywords.map(k => (<span key={k} className="rounded-md border px-2 py-1 text-xs">{k}</span>))}
-                    </div>
-                  </div>
-                )}
+
 
                 {(doc.aiKeywords && doc.aiKeywords.length > 0) && (
                   <div>

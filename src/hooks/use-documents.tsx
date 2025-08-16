@@ -47,7 +47,9 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
   const deriveFolders = useCallback((docs: StoredDocument[], prevFolders: string[][]) => {
     const derived = new Set<string>(prevFolders.map(p => p.join('/')));
+    // Only derive folders from non-folder documents
     for (const d of docs) {
+      if (d.type === 'folder') continue; // Skip folder placeholder documents
       const p = (d.folderPath || (d as any).folder_path || []) as string[];
       for (let i = 1; i <= p.length; i++) derived.add(p.slice(0, i).join('/'));
     }
@@ -63,8 +65,10 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
       ...d, 
       uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
     })) as StoredDocument[];
-    setDocuments(revived);
-    setFolders(prev => deriveFolders(revived, prev));
+    // Extra safety: ensure no folder documents are included
+    const filteredRevived = revived.filter(d => d.type !== 'folder');
+    setDocuments(filteredRevived);
+    setFolders(prev => deriveFolders(filteredRevived, prev));
   }, [deriveFolders]);
 
   const loadAllDocuments = useCallback(async () => {
@@ -76,8 +80,10 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
       ...d, 
       uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
     })) as StoredDocument[];
-    setDocuments(revived);
-    setFolders(prev => deriveFolders(revived, prev));
+    // Extra safety: ensure no folder documents are included
+    const filteredRevived = revived.filter(d => d.type !== 'folder');
+    setDocuments(filteredRevived);
+    setFolders(prev => deriveFolders(filteredRevived, prev));
   }, [deriveFolders]);
 
   // Load documents on mount

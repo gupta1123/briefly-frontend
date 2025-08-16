@@ -250,13 +250,15 @@ function UploadContent() {
       
       console.log('Found version candidates:', candidates.length, 'for file:', item.file.name, 'in folder:', folderPath);
       
+      console.log(`Setting item ${index} status to 'ready'`);
       setQueue(prev => prev.map((q, i) => i === index ? { 
         ...q, 
         status: 'ready', 
         extracted: { ocrText: ocrResult.extractedText, metadata: metadataResult }, 
         form: updatedForm, 
         locked: false, 
-        candidates, 
+        candidates,
+        progress: 100,
         senderOptions,
         receiverOptions,
         linkMode: candidates.length > 0 ? 'version' : 'new', 

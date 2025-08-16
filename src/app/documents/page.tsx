@@ -129,14 +129,22 @@ function DocumentsPageContent() {
   };
 
   const filteredDocs = useMemo(() => {
-    // When searching, search ALL documents across folders, not just current folder
-    // Also filter out folder placeholder documents
+    // ALWAYS filter out folders first, regardless of search or current folder
     const allDocs = (showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents)
       .filter(d => d.type !== 'folder'); // Exclude folder placeholders
-    const base = query.trim() ? allDocs : (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs);
+    
+    const currentDocsFiltered = (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs)
+      .filter(d => d.type !== 'folder'); // Also filter currentDocs to exclude folders
+    
+    const base = query.trim() ? allDocs : currentDocsFiltered;
+    
     if (!query.trim()) return base;
+    
     const q = query.toLowerCase();
     return base.filter(d => {
+      // Final safety check: ensure we never return folders in search results
+      if (d.type === 'folder') return false;
+      
       const inArr = (arr?: string[]) => (arr || []).some(v => v.toLowerCase().includes(q));
       switch (field) {
         case 'title':
