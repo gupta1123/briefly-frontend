@@ -324,8 +324,12 @@ function VersionsPanel({ docId }: { docId: string }) {
   const { getDocumentById, setCurrentVersion, unlinkFromVersionGroup, documents } = useDocuments();
   const doc = getDocumentById(docId)!;
   if (!doc.versionGroupId) return null;
+  
   const versions = documents.filter(d => (d.versionGroupId || (d as any).version_group_id || d.id) === doc.versionGroupId)
     .sort((a, b) => (a.versionNumber || a.version || 1) - (b.versionNumber || b.version || 1));
+
+  const currentIndex = versions.findIndex(v => v.id === docId);
+  const totalVersions = versions.length;
 
   const moveVersion = async (fromVersion: number, toVersion: number, documentId: string) => {
     try {
@@ -334,61 +338,177 @@ function VersionsPanel({ docId }: { docId: string }) {
         method: 'POST',
         body: { fromVersion, toVersion }
       });
-      // Refresh the documents to get updated version numbers
-      window.location.reload(); // Simple refresh for now
+      window.location.reload();
     } catch (error) {
       console.error('Failed to move version:', error);
     }
   };
 
+  const getVersionAge = (uploadedAt: Date) => {
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - uploadedAt.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.ceil(diffDays / 7)} weeks ago`;
+    if (diffDays < 365) return `${Math.ceil(diffDays / 30)} months ago`;
+    return `${Math.ceil(diffDays / 365)} years ago`;
+  };
+
   return (
-    <div className="space-y-2">
-      {versions.map((v: any, index) => (
-        <div key={v.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
-          <div className="text-xs">
-            <div className="font-medium">v{v.versionNumber || v.version} {v.isCurrentVersion && <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-primary">current</span>}</div>
-            <div className="text-muted-foreground">{formatAppDateTime(v.uploadedAt)} · {(v.documentType || v.type)}</div>
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Version reordering buttons */}
-            {index > 0 && (
-              <Button 
-                size="sm" 
-                variant="ghost" 
-                onClick={() => moveVersion(v.versionNumber || v.version || 1, (versions[index-1].versionNumber || versions[index-1].version || 1), v.id)}
-                title={`Move to v${(versions[index-1].versionNumber || versions[index-1].version || 1)}`}
-              >
-                ↑
-              </Button>
-            )}
-            {index < versions.length - 1 && (
-              <Button 
-                size="sm" 
-                variant="ghost" 
-                onClick={() => moveVersion(v.versionNumber || v.version || 1, (versions[index+1].versionNumber || versions[index+1].version || 1), v.id)}
-                title={`Move to v${(versions[index+1].versionNumber || versions[index+1].version || 1)}`}
-              >
-                ↓
-              </Button>
-            )}
-            {!v.isCurrentVersion && (
-              <Button size="sm" variant="outline" onClick={() => setCurrentVersion(v.id)}>Set current</Button>
-            )}
-            <Button size="sm" asChild>
-              <Link href={`/documents/${v.id}`}>View</Link>
-            </Button>
-          </div>
+    <div className="space-y-3">
+      {/* Version Timeline Header */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Version History</div>
+        <div className="text-xs text-muted-foreground">
+          {totalVersions} version{totalVersions !== 1 ? 's' : ''}
         </div>
-      ))}
+      </div>
+
+      {/* Version Timeline */}
+      <div className="relative">
+        {/* Timeline line */}
+        {totalVersions > 1 && (
+          <div className="absolute left-4 top-6 bottom-6 w-0.5 bg-border"></div>
+        )}
+        
+        <div className="space-y-3">
+          {versions.map((v: any, index) => {
+            const isActive = v.id === docId;
+            const isCurrent = v.isCurrentVersion;
+            const versionNum = v.versionNumber || v.version || 1;
+            
+            return (
+              <div key={v.id} className={`relative flex items-start gap-3 ${isActive ? 'bg-accent/20 p-2 rounded-md' : ''}`}>
+                {/* Timeline dot */}
+                <div className={`relative z-10 w-3 h-3 rounded-full border-2 flex-shrink-0 mt-2 ${
+                  isCurrent 
+                    ? 'bg-primary border-primary' 
+                    : isActive 
+                      ? 'bg-background border-primary'
+                      : 'bg-background border-muted-foreground'
+                }`}>
+                  {isCurrent && (
+                    <div className="absolute inset-0 rounded-full bg-primary animate-pulse opacity-50"></div>
+                  )}
+                </div>
+
+                {/* Version Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">Version {versionNum}</span>
+                        {isCurrent && (
+                          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            Current
+                          </span>
+                        )}
+                        {isActive && !isCurrent && (
+                          <span className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded-full">
+                            Viewing
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {getVersionAge(new Date(v.uploadedAt))} · {formatAppDateTime(v.uploadedAt)}
+                      </div>
+                      {v.documentType && (
+                        <div className="text-xs text-muted-foreground">
+                          {v.documentType}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-1">
+                      {/* Reorder buttons - only show if there are multiple versions */}
+                      {totalVersions > 1 && (
+                        <>
+                          {index > 0 && (
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-7 w-7 p-0"
+                              onClick={() => moveVersion(versionNum, versions[index-1].versionNumber || versions[index-1].version || 1, v.id)}
+                              title="Move up in timeline"
+                            >
+                              ↑
+                            </Button>
+                          )}
+                          {index < versions.length - 1 && (
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-7 w-7 p-0"
+                              onClick={() => moveVersion(versionNum, versions[index+1].versionNumber || versions[index+1].version || 1, v.id)}
+                              title="Move down in timeline"
+                            >
+                              ↓
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      
+                      {!isCurrent && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setCurrentVersion(v.id)}
+                        >
+                          Make Current
+                        </Button>
+                      )}
+                      
+                      {!isActive && (
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                          <Link href={`/documents/${v.id}`}>View</Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
+      {/* Version Actions */}
+      <div className="pt-2 border-t">
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="text-xs" asChild>
+            <Link href={`/documents/upload?path=${encodeURIComponent(doc.folderPath?.join('/') || '')}&version=${doc.id}`}>
+              + New Version
+            </Link>
+          </Button>
+          {totalVersions > 1 && (
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="text-xs"
+              onClick={() => unlinkFromVersionGroup(docId)}
+            >
+              Unlink from Group
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 function LinkedList({ docId }: { docId: string }) {
-  const { getDocumentById, documents } = useDocuments();
+  const { getDocumentById, documents, refresh } = useDocuments();
+  const [suggestions, setSuggestions] = React.useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = React.useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const { toast } = useToast();
   const base = getDocumentById(docId)!;
   const ids = base.linkedDocumentIds || [];
-  if (ids.length === 0) return <div className="text-sm text-muted-foreground">No related documents linked.</div>;
   
   // Filter to show only current versions of linked documents
   const linkedDocs = ids.map(id => {
@@ -406,27 +526,175 @@ function LinkedList({ docId }: { docId: string }) {
     
     return d; // return as-is if no version group
   }).filter(Boolean);
+
+  const loadSuggestions = async () => {
+    setLoadingSuggestions(true);
+    try {
+      const { orgId } = getApiContext();
+      const response = await apiFetch(`/orgs/${orgId}/documents/${docId}/suggest-links`);
+      setSuggestions(response.suggestions || []);
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Failed to load suggestions:', error);
+      toast({ title: 'Error', description: 'Failed to load link suggestions', variant: 'destructive' });
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
+
+  const addLink = async (targetId: string, linkType: string = 'related') => {
+    try {
+      const { orgId } = getApiContext();
+      await apiFetch(`/orgs/${orgId}/documents/${docId}/link`, {
+        method: 'POST',
+        body: { linkedId: targetId, linkType }
+      });
+      toast({ title: 'Success', description: 'Documents linked successfully' });
+      await refresh(); // Refresh to show new link
+      // Remove from suggestions
+      setSuggestions(prev => prev.filter(s => s.id !== targetId));
+    } catch (error: any) {
+      console.error('Failed to link documents:', error);
+      toast({ 
+        title: 'Error', 
+        description: error?.message || 'Failed to link documents', 
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  const removeLink = async (targetId: string) => {
+    try {
+      const { orgId } = getApiContext();
+      await apiFetch(`/orgs/${orgId}/documents/${docId}/link/${targetId}`, {
+        method: 'DELETE'
+      });
+      toast({ title: 'Success', description: 'Link removed successfully' });
+      await refresh(); // Refresh to update links
+    } catch (error) {
+      console.error('Failed to remove link:', error);
+      toast({ title: 'Error', description: 'Failed to remove link', variant: 'destructive' });
+    }
+  };
   
   return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Related</p>
-      {linkedDocs.map(d => {
-        if (!d) return null;
-        return (
-          <div key={d.id} className="flex items-center justify-between rounded-md border p-2">
-            <div className="min-w-0">
-              <div className="truncate font-medium" title={d.title || d.name}>{d.title || d.name}</div>
-              <div className="text-xs text-muted-foreground">
-                {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
-                {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
+    <div className="space-y-3">
+      {/* Header with actions */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Related Documents</div>
+        <Button 
+          size="sm" 
+          variant="outline" 
+          className="text-xs h-7"
+          onClick={loadSuggestions}
+          disabled={loadingSuggestions}
+        >
+          {loadingSuggestions ? 'Loading...' : '+ Suggest Links'}
+        </Button>
+      </div>
+
+      {/* Existing Links */}
+      {linkedDocs.length > 0 ? (
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground">
+            {linkedDocs.length} linked document{linkedDocs.length !== 1 ? 's' : ''}
+          </div>
+          {linkedDocs.map(d => {
+            if (!d) return null;
+            return (
+              <div key={d.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium" title={d.title || d.name}>
+                    {d.title || d.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
+                    {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                    <Link href={`/documents/${d.id}`}>View</Link>
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                    onClick={() => removeLink(d.id)}
+                    title="Remove link"
+                  >
+                    ×
+                  </Button>
+                </div>
               </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+          No related documents linked yet
+        </div>
+      )}
+
+      {/* Smart Suggestions */}
+      {showSuggestions && suggestions.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-medium text-muted-foreground">
+              Suggested Links ({suggestions.length})
             </div>
-            <Button size="sm" asChild>
-              <Link href={`/documents/${d.id}`}>View</Link>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-6 w-6 p-0 text-xs"
+              onClick={() => setShowSuggestions(false)}
+            >
+              ×
             </Button>
           </div>
-        );
-      })}
+          {suggestions.map(suggestion => (
+            <div key={suggestion.id} className="rounded-md border border-dashed p-3 bg-accent/5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-sm mb-1">
+                    {suggestion.title}
+                  </div>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Score: {suggestion.score}% match
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {suggestion.reasons.map((reason: string, idx: number) => (
+                      <div key={idx} className="flex items-center gap-1">
+                        <span className="w-1 h-1 bg-current rounded-full"></span>
+                        {reason}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-7 px-2 text-xs"
+                    onClick={() => addLink(suggestion.id, suggestion.suggestedLinkType)}
+                  >
+                    Link
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                    <Link href={`/documents/${suggestion.id}`}>View</Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showSuggestions && suggestions.length === 0 && !loadingSuggestions && (
+        <div className="text-sm text-muted-foreground py-2 text-center">
+          No link suggestions found based on content similarity.
+        </div>
+      )}
     </div>
   );
 }
