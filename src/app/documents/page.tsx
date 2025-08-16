@@ -141,7 +141,7 @@ function DocumentsPageContent() {
     if (!query.trim()) return base;
     
     const q = query.toLowerCase();
-    return base.filter(d => {
+    const searchResults = base.filter(d => {
       // Final safety check: ensure we never return folders in search results
       if (d.type === 'folder') return false;
       
@@ -167,6 +167,13 @@ function DocumentsPageContent() {
             || inArr(d.keywords) || inArr(d.aiKeywords) || inArr(d.tags);
       }
     });
+    
+    // SUPER SIMPLE: Just filter out any remaining folders
+    const finalResults = searchResults.filter(d => d.type !== 'folder');
+    console.log('🔍 Search results - Before folder filter:', searchResults.length, 'items');
+    console.log('🔍 Search results - After folder filter:', finalResults.length, 'items');
+    console.log('🔍 Any folders in search results?', searchResults.some(d => d.type === 'folder'));
+    return finalResults;
   }, [query, field, currentDocs, showCurrentOnly]);
 
   // Update URL when path changes (for navigation)
@@ -540,7 +547,8 @@ function DocumentsPageContent() {
                 </thead>
                 <tbody>
                   {/* Folders as table rows */}
-                  {currentFolders.map((p, idx) => (
+                  {/* Only show folders when NOT searching */}
+                  {!query.trim() && currentFolders.map((p, idx) => (
                     <tr
                       key={`folder-${p.join('/')}`}
                       className="border-t hover:bg-accent/40 cursor-pointer"
