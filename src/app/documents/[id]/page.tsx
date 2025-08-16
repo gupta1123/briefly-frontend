@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Download, Pencil, Trash2, Copy, FileText as FileTextIcon, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, MapPin, Info, FileType, HardDrive, Link as LinkIcon } from 'lucide-react';
 import { useDocuments } from '@/hooks/use-documents';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { formatAppDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
@@ -634,25 +634,37 @@ function VersionsPanel({ docId }: { docId: string }) {
 function LinkedList({ docId }: { docId: string }) {
   const { getDocumentById, documents, refresh } = useDocuments();
   const { toast } = useToast();
-  const base = getDocumentById(docId)!;
-  const ids = base.linkedDocumentIds || [];
+  const [relationships, setRelationships] = useState<{
+    linked: any[],
+    versions: any[],
+    incoming: any[],
+    outgoing: any[]
+  }>({ linked: [], versions: [], incoming: [], outgoing: [] });
+  const [loading, setLoading] = useState(true);
   
-  // Filter to show only current versions of linked documents
-  const linkedDocs = ids.map(id => {
-    const d = getDocumentById(id);
-    if (!d) return null;
-    
-    // If this document has versions, find the current version
-    if (d.versionGroupId) {
-      const currentVersion = documents.find(doc => 
-        (doc.versionGroupId || (doc as any).version_group_id) === d.versionGroupId && 
-        doc.isCurrentVersion
-      );
-      return currentVersion || d; // fallback to original if no current version found
+  // Load relationships using the new endpoint
+  const loadRelationships = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { orgId } = getApiContext();
+      const data = await apiFetch(`/orgs/${orgId}/documents/${docId}/relationships`);
+      setRelationships(data);
+    } catch (error) {
+      console.error('Failed to load relationships:', error);
+    } finally {
+      setLoading(false);
     }
-    
-    return d; // return as-is if no version group
-  }).filter(Boolean);
+  }, [docId]);
+
+  useEffect(() => {
+    loadRelationships();
+  }, [loadRelationships]);
+
+  // Fallback to legacy linkedDocumentIds for backwards compatibility
+  const base = getDocumentById(docId)!;
+  const legacyIds = base.linkedDocumentIds || [];
+  const linkedDocs = relationships.linked.length > 0 ? relationships.linked : 
+    legacyIds.map(id => getDocumentById(id)).filter(Boolean);
 
 
 
@@ -664,9 +676,7 @@ function LinkedList({ docId }: { docId: string }) {
         body: { linkedId: targetId, linkType }
       });
       toast({ title: 'Success', description: 'Documents linked successfully' });
-      await refresh(); // Refresh to show new link
-      // Remove from suggestions
-      setSuggestions(prev => prev.filter(s => s.id !== targetId));
+      await Promise.all([refresh(), loadRelationships()]); // Refresh both document list and relationships
     } catch (error: any) {
       console.error('Failed to link documents:', error);
       toast({ 
@@ -684,7 +694,7 @@ function LinkedList({ docId }: { docId: string }) {
         method: 'DELETE'
       });
       toast({ title: 'Success', description: 'Link removed successfully' });
-      await refresh(); // Refresh to update links
+      await Promise.all([refresh(), loadRelationships()]); // Refresh both document list and relationships
     } catch (error) {
       console.error('Failed to remove link:', error);
       toast({ title: 'Error', description: 'Failed to remove link', variant: 'destructive' });
@@ -696,46 +706,129 @@ function LinkedList({ docId }: { docId: string }) {
       {/* Header */}
       <div className="text-sm font-medium">Related Documents</div>
 
-      {/* Existing Links */}
-      {linkedDocs.length > 0 ? (
-    <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">
-            {linkedDocs.length} linked document{linkedDocs.length !== 1 ? 's' : ''}
-          </div>
-      {linkedDocs.map(d => {
-        if (!d) return null;
-        return (
-              <div key={d.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium" title={d.title || d.name}>
-                    {d.title || d.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
-                {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-                    <Link href={`/documents/${d.id}`}>View</Link>
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="ghost" 
-                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                    onClick={() => removeLink(d.id)}
-                    title="Remove link"
-                  >
-                    ×
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
         </div>
       ) : (
-        <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
-          No related documents linked yet
+        <div className="space-y-4">
+          {/* Outgoing Links - Documents this document links TO */}
+          {relationships.outgoing.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                <span>↗️</span> Links to ({relationships.outgoing.length})
+              </div>
+              <div className="space-y-2">
+                {relationships.outgoing.map(rel => (
+                  <div key={rel.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium" title={rel.title}>
+                        {rel.title}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                        <span>{rel.type}</span>
+                        {rel.linkType && rel.linkType !== 'related' && <Badge variant="outline" className="text-xs">{rel.linkType}</Badge>}
+                        {rel.versionNumber && <span>v{rel.versionNumber}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                        <Link href={`/documents/${rel.id}`}>View</Link>
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => removeLink(rel.id)}
+                        title="Remove link"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Incoming Links - Documents that link TO this document */}
+          {relationships.incoming.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                <span>↙️</span> Linked from ({relationships.incoming.length})
+              </div>
+              <div className="space-y-2">
+                {relationships.incoming.map(rel => (
+                  <div key={rel.id} className="flex items-center justify-between rounded-md border p-3 bg-background border-l-4 border-l-blue-200">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium" title={rel.title}>
+                        {rel.title}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                        <span>{rel.type}</span>
+                        {rel.linkType && rel.linkType !== 'related' && <Badge variant="outline" className="text-xs">{rel.linkType}</Badge>}
+                        {rel.versionNumber && <span>v{rel.versionNumber}</span>}
+                        <span className="text-blue-600">← references this</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                        <Link href={`/documents/${rel.id}`}>View</Link>
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        onClick={() => removeLink(rel.id)}
+                        title="Remove link"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Version Siblings */}
+          {relationships.versions.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                <span>🔄</span> Other versions ({relationships.versions.length})
+              </div>
+              <div className="space-y-2">
+                {relationships.versions.map(version => (
+                  <div key={version.id} className="flex items-center justify-between rounded-md border p-3 bg-background border-l-4 border-l-green-200">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium" title={version.title}>
+                        {version.title}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                        <span>v{version.versionNumber}</span>
+                        {version.isCurrentVersion && <Badge variant="default" className="text-xs">Current</Badge>}
+                        <span>{formatAppDateTime(new Date(version.uploadedAt))}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                        <Link href={`/documents/${version.id}`}>View</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* No relationships */}
+          {relationships.outgoing.length === 0 && relationships.incoming.length === 0 && relationships.versions.length === 0 && (
+            <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+              No related documents or versions found
+            </div>
+          )}
         </div>
       )}
 
