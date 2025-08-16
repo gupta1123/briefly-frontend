@@ -17,9 +17,10 @@ CREATE INDEX IF NOT EXISTS idx_org_users_user_id_expires
 ON organization_users (user_id, expires_at);
 
 -- 3. Composite index for organization lookups with active status
+-- Note: Can't use NOW() in index predicate as it's not immutable
+-- This index will help with user_id + org_id lookups regardless of expiration
 CREATE INDEX IF NOT EXISTS idx_org_users_active 
-ON organization_users (user_id, org_id) 
-WHERE expires_at IS NULL OR expires_at > NOW();
+ON organization_users (user_id, org_id, expires_at);
 
 -- 4. Organizations table optimization for joins
 CREATE INDEX IF NOT EXISTS idx_organizations_id 
@@ -31,12 +32,12 @@ ON organizations (id);
 
 -- 5. Optimize audit events for login tracking
 CREATE INDEX IF NOT EXISTS idx_audit_login_user_org 
-ON audit_events (user_id, org_id, type, created_at) 
+ON audit_events (actor_user_id, org_id, type, ts) 
 WHERE type = 'login';
 
 -- 6. Cleanup old audit events index
 CREATE INDEX IF NOT EXISTS idx_audit_cleanup_date 
-ON audit_events (created_at, type);
+ON audit_events (ts, type);
 
 -- =========================================
 -- DOCUMENTS TABLE LOGIN-RELATED OPTIMIZATION
