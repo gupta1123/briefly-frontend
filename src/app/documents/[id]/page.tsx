@@ -16,12 +16,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/hooks/use-toast';
+import FilePreview from '@/components/file-preview';
 
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents } = useDocuments();
   const { hasRoleAtLeast } = useAuth();
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const formatSize = (bytes?: number) => {
     if (bytes === undefined) return '—';
     if (bytes < 1024) return `${bytes} B`;
@@ -33,6 +35,13 @@ export default function DocumentDetailPage() {
   const [ocrText, setOcrText] = useState<string>('');
   const [loadingExtraction, setLoadingExtraction] = useState<boolean>(false);
   const loadAttempted = useRef<Set<string>>(new Set());
+
+  // Track when documents are loaded
+  useEffect(() => {
+    if (documents.length > 0) {
+      setDocumentsLoaded(true);
+    }
+  }, [documents.length]);
 
   // Auto-load extraction content on page load
   useEffect(() => {
@@ -57,13 +66,71 @@ export default function DocumentDetailPage() {
     }
   }, [doc?.id]); // Only depend on document ID changing
 
-  if (!doc) return (
-    <AppLayout>
-      <div className="p-4 md:p-6">
-        <div className="text-sm text-muted-foreground">Document not found.</div>
-      </div>
-    </AppLayout>
-  );
+  // Show loading state if documents haven't loaded yet
+  if (!documentsLoaded) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6 space-y-6">
+          {/* Header skeleton */}
+          <div className="space-y-4">
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-8 w-3/4" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-9 w-20" />
+              <Skeleton className="h-9 w-16" />
+            </div>
+          </div>
+          
+          {/* Content skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-2 space-y-4">
+              <Skeleton className="h-6 w-40" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-32" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+              <Skeleton className="h-6 w-28" />
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Show not found if documents are loaded but document doesn't exist
+  if (!doc) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6">
+          <div className="text-center py-12">
+            <div className="text-lg font-medium text-muted-foreground mb-2">Document not found</div>
+            <div className="text-sm text-muted-foreground mb-4">
+              The document you're looking for might have been deleted or moved.
+            </div>
+            <Button asChild>
+              <Link href="/documents">Back to Documents</Link>
+            </Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -244,40 +311,14 @@ export default function DocumentDetailPage() {
             </Card>
           </div>
 
-          {/* Right column */}
-            <Card className="xl:col-span-1 xl:row-span-6">
-            <CardHeader>
-              <CardTitle>Content Preview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {doc.content ? (
-                <pre className="whitespace-pre-wrap text-sm bg-zinc-900 text-zinc-100 p-4 rounded-md overflow-auto max-h-[80vh]">{doc.content}</pre>
-              ) : loadingExtraction ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 8 }).map((_, i) => (<Skeleton key={i} className="h-4" />))}
-                </div>
-              ) : ocrText ? (
-                <pre className="whitespace-pre-wrap text-sm bg-zinc-900 text-zinc-100 p-4 rounded-md overflow-auto max-h-[80vh]">{ocrText}</pre>
-              ) : (
-                <div className="space-y-2">
-                  <button className="text-xs underline" onClick={async () => {
-                    const { orgId } = getApiContext();
-                    try {
-                      setLoadingExtraction(true);
-                      console.log('Manual load - Fetching extraction from:', `/orgs/${orgId}/documents/${doc.id}/extraction`);
-                      const data: any = await apiFetch(`/orgs/${orgId}/documents/${doc.id}/extraction`);
-                      console.log('Manual load - Extraction response:', data);
-                      setOcrText(String(data.ocrText || ''));
-                    } catch (error) {
-                      console.log('Manual load - Extraction error:', error);
-                    }
-                    setLoadingExtraction(false);
-                  }}>Load extracted text</button>
-                  <div className="text-xs text-muted-foreground">No extracted content found in DB. Try loading from extractions Storage if available.</div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Right column - File Preview */}
+          <div className="xl:col-span-1">
+            <FilePreview 
+              documentId={doc.id}
+              mimeType={doc.mimeType}
+              extractedContent={doc.content || ocrText || undefined}
+            />
+          </div>
         </div>
       </div>
     </AppLayout>

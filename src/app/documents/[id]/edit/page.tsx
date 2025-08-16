@@ -165,53 +165,221 @@ export default function EditDocumentPage() {
                 <p className="mt-1 text-xs text-muted-foreground">Choose existing or type a new nested path. New folders will be created automatically.</p>
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm">Linked Documents</label>
-                {/* Selected chips */}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {linkedIds.map(id => {
-                    const ld = documents.find(x => x.id === id);
-                    if (!ld) return null;
-                    return (
-                      <span key={id} className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
-                        <span className="truncate max-w-[220px]" title={ld.title || ld.name}>{ld.title || ld.name}</span>
-                        <button onClick={() => setLinkedIds(prev => prev.filter(x => x !== id))} aria-label="Remove" className="opacity-60 hover:opacity-100">×</button>
-                      </span>
-                    );
-                  })}
-                  {linkedIds.length === 0 && (
-                    <span className="text-xs text-muted-foreground">No links yet. Search and add below.</span>
+                <label className="text-sm font-medium">Document Relationships</label>
+                <div className="mt-3 space-y-4">
+                  
+                  {/* Current Links */}
+                  {linkedIds.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground mb-2">
+                        Currently Linked ({linkedIds.length})
+                      </div>
+                      <div className="space-y-2">
+                        {linkedIds.map(id => {
+                          const d = documents.find(x => x.id === id);
+                          if (!d) return null;
+                          
+                          // Check if this is part of a version group
+                          const isVersioned = d.versionGroupId && d.versionGroupId === doc.versionGroupId;
+                          const versions = documents.filter(docItem => 
+                            (docItem.versionGroupId || (docItem as any).version_group_id) === d.versionGroupId
+                          ).sort((a, b) => (a.versionNumber || a.version || 1) - (b.versionNumber || b.version || 1));
+                          
+                          return (
+                            <div key={id} className="flex items-center justify-between rounded-md border p-2 bg-background">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="truncate font-medium" title={d.title || d.name}>
+                                    {d.title || d.name}
+                                  </span>
+                                  {isVersioned && (
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                      Same Version Group
+                                    </span>
+                                  )}
+                                  {d.versionGroupId && !isVersioned && (
+                                    <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                                      v{d.versionNumber || d.version || 1}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
+                                  {versions.length > 1 && (
+                                    <span className="ml-2">({versions.length} versions)</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button size="sm" variant="ghost" asChild>
+                                  <Link href={`/documents/${d.id}`} target="_blank">View</Link>
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  onClick={() => setLinkedIds(prev => prev.filter(x => x !== id))}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                </div>
-                {/* Search & results */}
-                <div className="mt-3">
-                  <Input
-                    placeholder="Search by name (type to find, then click Add)"
-                    value={linkQuery}
-                    onChange={(e) => setLinkQuery(e.target.value)}
-                  />
-                  <div className="mt-2 max-h-56 overflow-y-auto rounded-md border">
-                    {documents
-                      .filter(d => d.id !== doc.id)
-                      .filter(d => ((d.title || d.name || '') as string).toLowerCase().includes(linkQuery.toLowerCase()))
-                      .slice(0, 50)
-                      .map(d => {
-                        const selected = linkedIds.includes(d.id);
-                        return (
-                          <div key={d.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent/40">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium" title={d.title || d.name}>{d.title || d.name}</div>
-                              <div className="text-xs text-muted-foreground">{formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}</div>
+
+                  {/* Smart Suggestions */}
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Smart Suggestions
+                    </div>
+                    <div className="space-y-2">
+                      {(() => {
+                        // Find documents with similar metadata
+                        const suggestions = documents
+                          .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
+                          .map(d => {
+                            let score = 0;
+                            let reasons = [];
+                            
+                            // Same sender/receiver
+                            if (doc.sender && d.sender === doc.sender) {
+                              score += 30;
+                              reasons.push(`Same sender: ${d.sender}`);
+                            }
+                            if (doc.receiver && d.receiver === doc.receiver) {
+                              score += 30;
+                              reasons.push(`Same receiver: ${d.receiver}`);
+                            }
+                            
+                            // Same category
+                            if (doc.category && d.category === doc.category) {
+                              score += 20;
+                              reasons.push(`Same category: ${d.category}`);
+                            }
+                            
+                            // Same document type
+                            if (doc.documentType && d.documentType === doc.documentType) {
+                              score += 15;
+                              reasons.push(`Same type: ${d.documentType}`);
+                            }
+                            
+                            // Version group (different versions of same document)
+                            if (d.versionGroupId && d.versionGroupId === doc.versionGroupId) {
+                              score += 50;
+                              reasons.push(`Same document (v${d.versionNumber || d.version || 1})`);
+                            }
+                            
+                            return { document: d, score, reasons: reasons.slice(0, 2) };
+                          })
+                          .filter(s => s.score > 15)
+                          .sort((a, b) => b.score - a.score)
+                          .slice(0, 5);
+
+                        if (suggestions.length === 0) {
+                          return (
+                            <div className="text-sm text-muted-foreground py-2 text-center border border-dashed rounded-md">
+                              No smart suggestions found. Use search below to find documents manually.
                             </div>
-                            <div className="flex items-center gap-2">
-                              <Button size="sm" variant={selected ? 'outline' : 'default'} onClick={() => {
-                                setLinkedIds(prev => selected ? prev.filter(x => x !== d.id) : Array.from(new Set([...prev, d.id])));
-                              }}>{selected ? 'Remove' : 'Add'}</Button>
+                          );
+                        }
+
+                        return suggestions.map(({ document: d, score, reasons }) => (
+                          <div key={d.id} className="flex items-start justify-between rounded-md border border-dashed p-2 bg-accent/5">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-medium text-sm" title={d.title || d.name}>
+                                  {d.title || d.name}
+                                </span>
+                                <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                                  {score}% match
+                                </span>
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {reasons.map((reason, idx) => (
+                                  <div key={idx}>• {reason}</div>
+                                ))}
+                              </div>
                             </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => setLinkedIds(prev => [...prev, d.id])}
+                              className="text-xs h-7"
+                            >
+                              Link
+                            </Button>
                           </div>
-                        );
-                      })}
-                    {documents.filter(d => d.id !== doc.id).filter(d => ((d.title || d.name || '') as string).toLowerCase().includes(linkQuery.toLowerCase())).length > 50 && (
-                      <div className="p-2 text-xs text-muted-foreground">Showing top 50 results. Refine your search to narrow down.</div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Manual Search */}
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Manual Search
+                    </div>
+                    <Input
+                      placeholder="Search by title, sender, or type..."
+                      value={linkQuery}
+                      onChange={(e) => setLinkQuery(e.target.value)}
+                      className="mb-2"
+                    />
+                    {linkQuery.trim() && (
+                      <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
+                        {documents
+                          .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
+                          .filter(d => {
+                            const searchText = linkQuery.toLowerCase();
+                            return (
+                              (d.title || d.name || '').toLowerCase().includes(searchText) ||
+                              (d.sender || '').toLowerCase().includes(searchText) ||
+                              (d.receiver || '').toLowerCase().includes(searchText) ||
+                              (d.documentType || d.type || '').toLowerCase().includes(searchText)
+                            );
+                          })
+                          .slice(0, 20)
+                          .map(d => (
+                            <div key={d.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent/40 border-b last:border-b-0">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate font-medium" title={d.title || d.name}>
+                                  {d.title || d.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
+                                  {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
+                                </div>
+                              </div>
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                onClick={() => {
+                                  setLinkedIds(prev => [...prev, d.id]);
+                                  setLinkQuery(''); // Clear search after adding
+                                }}
+                                className="text-xs h-7"
+                              >
+                                Add
+                              </Button>
+                            </div>
+                          ))}
+                        {documents.filter(d => d.id !== doc.id && !linkedIds.includes(d.id)).filter(d => {
+                          const searchText = linkQuery.toLowerCase();
+                          return (
+                            (d.title || d.name || '').toLowerCase().includes(searchText) ||
+                            (d.sender || '').toLowerCase().includes(searchText) ||
+                            (d.receiver || '').toLowerCase().includes(searchText) ||
+                            (d.documentType || d.type || '').toLowerCase().includes(searchText)
+                          );
+                        }).length === 0 && (
+                          <div className="p-3 text-sm text-muted-foreground text-center">
+                            No documents found matching "{linkQuery}"
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
