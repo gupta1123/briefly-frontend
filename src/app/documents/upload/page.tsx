@@ -266,8 +266,28 @@ function UploadContent() {
       toast({ title: 'Processed', description: `${item.file.name} analyzed by AI.` });
     } catch (e) {
       clearInterval(timer);
-      setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'error', note: 'Processing failed', locked: false } : q));
-      toast({ title: 'Processing failed', description: `${item.file.name} failed`, variant: 'destructive' });
+      console.error('Upload processing error:', e);
+      
+      // Provide specific error messages based on the type of failure
+      let errorMessage = 'Processing failed';
+      if (e instanceof Error) {
+        if (e.message.includes('Upload failed')) {
+          errorMessage = 'File upload failed. Please try again.';
+        } else if (e.message.includes('analyze')) {
+          errorMessage = 'AI analysis failed. Please try again.';
+        } else if (e.message.includes('sign')) {
+          errorMessage = 'Upload preparation failed. Please try again.';
+        } else {
+          errorMessage = e.message;
+        }
+      }
+      
+      setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'error', note: errorMessage, locked: false } : q));
+      toast({ 
+        title: 'Processing failed', 
+        description: `${item.file.name}: ${errorMessage}`, 
+        variant: 'destructive' 
+      });
     }
   };
 
@@ -308,12 +328,32 @@ function UploadContent() {
     });
   }
 
-  async function uploadToSignedUrl(signedUrl: string, file: File) {
-    await fetch(signedUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
-    });
+  async function uploadToSignedUrl(signedUrl: string, file: File, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(signedUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Upload failed with status: ${response.status} ${response.statusText}`);
+        }
+        
+        return; // Success
+      } catch (error) {
+        console.error(`Upload attempt ${attempt} failed:`, error);
+        
+        if (attempt === retries) {
+          throw new Error(`Upload failed after ${retries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+        
+        // Wait before retry (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
 
   // Ensure we have a focused item when entering queue view or when items change
@@ -544,12 +584,10 @@ function UploadContent() {
                 <div className="text-sm text-muted-foreground">or click to browse</div>
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
                   <span className="rounded-full border px-2 py-0.5">PDF</span>
-                  <span className="rounded-full border px-2 py-0.5">DOC</span>
-                  <span className="rounded-full border px-2 py-0.5">DOCX</span>
                   <span className="rounded-full border px-2 py-0.5">TXT</span>
-                  <span className="rounded-full border px-2 py-0.5">XLS/XLSX</span>
-                  <span className="rounded-full border px-2 py-0.5">PPT/PPTX</span>
-                  <span className="rounded-full border px-2 py-0.5">PNG/JPG</span>
+                  <span className="rounded-full border px-2 py-0.5">MD</span>
+                  <span className="rounded-full border px-2 py-0.5">JPG</span>
+                  <span className="rounded-full border px-2 py-0.5">PNG</span>
                 </div>
                 <div id="upload-help" className="mt-2 text-xs text-muted-foreground">We’ll extract metadata and a summary automatically.</div>
                 <div className="mt-6 flex items-center justify-center gap-3">
@@ -557,11 +595,11 @@ function UploadContent() {
                     ref={inputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg"
+                    accept=".pdf,.txt,.md,.jpg,.jpeg,.png,application/pdf,text/plain,text/markdown,image/jpeg,image/png"
                     className="hidden"
                     onChange={(e) => e.target.files && onSelect(e.target.files)}
                   />
-                  <Button onClick={onBrowse} className="gap-2"><UploadCloud className="h-4 w-4" /> Browse files</Button>
+                  <Button onClick={(e) => { e.stopPropagation(); onBrowse(); }} className="gap-2"><UploadCloud className="h-4 w-4" /> Browse files</Button>
                 </div>
               </div>
               <div className="mx-auto max-w-2xl mt-4 text-xs text-muted-foreground">

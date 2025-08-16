@@ -241,7 +241,9 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [getOrgId, refresh, documents]);
 
-  const getDocumentsInPath = useCallback((path: string[]) => documents.filter(d => JSON.stringify(d.folderPath || []) === JSON.stringify(path)), [documents]);
+  const getDocumentsInPath = useCallback((path: string[]) => documents.filter(d => 
+    JSON.stringify(d.folderPath || []) === JSON.stringify(path) && d.type !== 'folder'
+  ), [documents]);
 
   const moveDocumentsToPath = useCallback(async (ids: string[], destPath: string[]) => {
     const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
