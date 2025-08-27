@@ -15,6 +15,8 @@ import {
 } from './ui/sidebar';
 import { useDocuments } from '@/hooks/use-documents';
 import { useAuth } from '@/hooks/use-auth';
+import { useDepartments } from '@/hooks/use-departments';
+import { Badge } from '@/components/ui/badge';
 
 const links = [
   { href: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -28,7 +30,20 @@ export default function SidebarNav() {
   const pathname = usePathname();
   const { documents } = useDocuments();
   const { user } = useAuth();
-  const isManager = user?.role === 'systemAdmin' || user?.role === 'contentManager';
+  const { departments, selectedDepartmentId } = useDepartments();
+  const isManager = user?.role === 'systemAdmin' || user?.role === 'teamLead';
+
+  const roleLabel = (r?: string) => {
+    switch ((r || '').toLowerCase()) {
+      case 'systemadmin': return 'Admin';
+      case 'teamlead': return 'Team Lead';
+      case 'member': return 'Member';
+      case 'guest': return 'Guest';
+      default: return r || '';
+    }
+  };
+  const team = departments.find(d => d.id === selectedDepartmentId) || null;
+
   return (
     <>
       <SidebarGroup>
@@ -79,6 +94,19 @@ export default function SidebarNav() {
           </SidebarGroup>
         </>
       )}
+
+      {/* Identity summary at bottom (below user section area) */}
+      <SidebarSeparator />
+      <SidebarGroup>
+        <SidebarGroupContent>
+          <div className="px-3 py-2 flex items-center gap-2 text-xs">
+            <Badge variant="outline">{roleLabel(user?.role)}</Badge>
+            {team && (
+              <Badge variant="outline" data-color={team.color || 'default'} className="capitalize">{team.name}</Badge>
+            )}
+          </div>
+        </SidebarGroupContent>
+      </SidebarGroup>
     </>
   );
 }

@@ -22,6 +22,11 @@ import { Suspense } from 'react';
 import { formatAppDateTime, parseFlexibleDate } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useDepartments } from '@/hooks/use-departments';
+import { Badge } from '@/components/ui/badge';
+import { Dialog as UiDialog, DialogContent as UiDialogContent, DialogFooter as UiDialogFooter, DialogHeader as UiDialogHeader, DialogTitle as UiDialogTitle } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { apiFetch, getApiContext } from '@/lib/api';
 
 type ViewMode = 'grid' | 'list' | 'cards';
 
@@ -57,9 +62,9 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 }
 
 function DocumentsPageContent() {
-  const { documents, folders, listFolders, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath } = useDocuments();
+  const { documents, folders, listFolders, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments } = useDocuments();
+  const { departments } = useDepartments();
   const { hasRoleAtLeast } = useAuth();
-  const isLoading = false; // placeholder; replace with real loading if data is remote in future
   const searchParams = useSearchParams();
   const [path, setPath] = useState<string[]>([]);
   
@@ -80,6 +85,7 @@ function DocumentsPageContent() {
   const currentDocs = getDocumentsInPath(path);
   const [query, setQuery] = useState('');
   const [field, setField] = useState<'all' | 'title' | 'subject' | 'sender' | 'receiver' | 'keywords' | 'doctype'>('all');
+  const [searchInFolderOnly, setSearchInFolderOnly] = useState<boolean>(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
@@ -90,6 +96,28 @@ function DocumentsPageContent() {
   const [showCurrentOnly, setShowCurrentOnly] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharePath, setSharePath] = useState<string[]>([]);
+  const [shareDeptIds, setShareDeptIds] = useState<string[]>([]);
+  const [folderAccess, setFolderAccess] = useState<Record<string, string[]>>({});
+  const isAdmin = hasRoleAtLeast('systemAdmin');
+  
+  useEffect(() => {
+    if (!isAdmin) return;
+    const orgId = getApiContext().orgId || '';
+    if (!orgId) return;
+    const fetchAccess = async (p: string[]) => {
+      const key = p.join('/');
+      if (folderAccess[key]) return;
+      try {
+        const res = await apiFetch<{ path: string[]; departments: string[] }>(`/orgs/${orgId}/folder-access?path=${encodeURIComponent(key)}`);
+        setFolderAccess(prev => ({ ...prev, [key]: res?.departments || [] }));
+      } catch {}
+    };
+    currentFolders.forEach(p => { void fetchAccess(p); });
+  }, [currentFolders, isAdmin]);
+
+  const deptById = (id?: string | null) => departments.find(d => d.id === id) || null;
   const bulkTagInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   
@@ -108,7 +136,7 @@ function DocumentsPageContent() {
       let message = `Folder "${folderToDelete[folderToDelete.length - 1]}" deleted successfully`;
       if (result.documentsHandled > 0) {
         if (deletionMode === 'move_to_root') {
-          message += `. ${result.documentsHandled} document(s) moved to root folder.`;
+          message += `. ${result.documentsHandled} document(s) moved to parent folder.`;
         } else {
           message += `. ${result.documentsHandled} document(s) deleted.`;
         }
@@ -128,6 +156,14 @@ function DocumentsPageContent() {
     }
   };
 
+  // Load all documents when searching (progressive loading)
+  useEffect(() => {
+    if (query.trim() && !searchInFolderOnly) {
+      // Load all documents for global search
+      loadAllDocuments();
+    }
+  }, [query, searchInFolderOnly, loadAllDocuments]);
+
   const filteredDocs = useMemo(() => {
     // ALWAYS filter out folders first, regardless of search or current folder
     const allDocs = (showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents)
@@ -136,7 +172,7 @@ function DocumentsPageContent() {
     const currentDocsFiltered = (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs)
       .filter(d => d.type !== 'folder'); // Also filter currentDocs to exclude folders
     
-    const base = query.trim() ? allDocs : currentDocsFiltered;
+    const base = query.trim() ? (searchInFolderOnly ? currentDocsFiltered : allDocs) : currentDocsFiltered;
     
     if (!query.trim()) return base;
     
@@ -170,11 +206,8 @@ function DocumentsPageContent() {
     
     // SUPER SIMPLE: Just filter out any remaining folders
     const finalResults = searchResults.filter(d => d.type !== 'folder');
-    console.log('🔍 Search results - Before folder filter:', searchResults.length, 'items');
-    console.log('🔍 Search results - After folder filter:', finalResults.length, 'items');
-    console.log('🔍 Any folders in search results?', searchResults.some(d => d.type === 'folder'));
     return finalResults;
-  }, [query, field, currentDocs, showCurrentOnly]);
+  }, [query, field, currentDocs, showCurrentOnly, searchInFolderOnly, documents]);
 
   // Update URL when path changes (for navigation)
   useEffect(() => {
@@ -310,6 +343,30 @@ function DocumentsPageContent() {
     setDragOverFolderIdx(null);
   };
 
+  const openShare = async (pathArr: string[]) => {
+    setSharePath(pathArr);
+    setShareOpen(true);
+    try {
+      const orgId = getApiContext().orgId || '';
+      const params = new URLSearchParams();
+      params.set('path', pathArr.join('/'));
+      const data = await apiFetch<{ path: string[]; departments: string[] }>(`/orgs/${orgId}/folder-access?${params.toString()}`);
+      setShareDeptIds(data.departments || []);
+    } catch {
+      setShareDeptIds([]);
+    }
+  };
+  const toggleShareDept = (id: string, checked: boolean) => {
+    setShareDeptIds(prev => checked ? Array.from(new Set([...prev, id])) : prev.filter(x => x !== id));
+  };
+  const saveShare = async () => {
+    try {
+      const orgId = getApiContext().orgId || '';
+      await apiFetch(`/orgs/${orgId}/folder-access`, { method: 'PUT', body: { path: sharePath, departmentIds: shareDeptIds } });
+      setShareOpen(false);
+    } catch {}
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -351,7 +408,7 @@ function DocumentsPageContent() {
         </div>
 
         <div className="flex items-center gap-3">
-          {hasRoleAtLeast('contentManager') && (
+          {hasRoleAtLeast('systemAdmin') && (
           <Button asChild className="gap-2">
             <Link href={`/documents/upload${path.length ? `?path=${encodeURIComponent(path.join('/'))}` : ''}`}><Plus className="h-4 w-4" /> Upload Document</Link>
           </Button>
@@ -360,7 +417,16 @@ function DocumentsPageContent() {
             <Input placeholder="Search documents..." value={query} onChange={(e) => setQuery(e.target.value)} />
             {query.trim() && (
               <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-accent text-accent-foreground text-xs rounded-md">
-                🔍 Searching all folders ({filteredDocs.length} results)
+                {isLoading && !searchInFolderOnly ? (
+                  <div className="flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-current"></div>
+                    Loading all documents for search...
+                  </div>
+                ) : (
+                  <>
+                    {searchInFolderOnly ? '🔍 Searching current folder' : '🔍 Searching all folders'} ({filteredDocs.length} results)
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -377,17 +443,24 @@ function DocumentsPageContent() {
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2 ml-2">
+            <Switch checked={searchInFolderOnly} onCheckedChange={(v) => setSearchInFolderOnly(!!v)} id="in-folder-only" />
+            <label htmlFor="in-folder-only" className="text-sm text-muted-foreground">In current folder</label>
+          </div>
+          <div className="flex items-center gap-2 ml-2">
             <Switch checked={showCurrentOnly} onCheckedChange={setShowCurrentOnly} id="current-only" />
             <label htmlFor="current-only" className="text-sm text-muted-foreground">Current only</label>
           </div>
           {selectedIds.size > 0 && (
             <div className="ml-auto flex items-center gap-2">
               <Input ref={bulkTagInputRef} placeholder={`Add tag to ${selectedIds.size} selected`} value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} className="w-56" />
-              <Button variant="outline" onClick={bulkAddTag}>Add Tag</Button>
-              <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline">Move…</Button>
-                </DialogTrigger>
+              {hasRoleAtLeast('systemAdmin') && (
+                <Button variant="outline" onClick={bulkAddTag}>Add Tag</Button>
+              )}
+              {hasRoleAtLeast('systemAdmin') && (
+                <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">Move…</Button>
+                  </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Move {selectedIds.size} documents</DialogTitle>
@@ -402,15 +475,18 @@ function DocumentsPageContent() {
                     <Button onClick={onBulkMove}>Move</Button>
                   </DialogFooter>
                 </DialogContent>
-              </Dialog>
-              <Button variant="destructive" onClick={bulkDelete}>Delete</Button>
+                </Dialog>
+              )}
+              {hasRoleAtLeast('systemAdmin') && (
+                <Button variant="destructive" onClick={bulkDelete}>Delete</Button>
+              )}
             </div>
           )}
           <div className="ml-auto flex items-center gap-1">
             <Button variant={view === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setView('grid')}><Grid2X2 className="h-4 w-4" /></Button>
             <Button variant={view === 'list' ? 'default' : 'outline'} size="icon" onClick={() => setView('list')}><List className="h-4 w-4" /></Button>
             <Button variant={view === 'cards' ? 'default' : 'outline'} size="icon" onClick={() => setView('cards')}><Grid3X3 className="h-4 w-4" /></Button>
-           {hasRoleAtLeast('contentManager') && (
+           {hasRoleAtLeast('systemAdmin') && (
            <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
               <DialogTrigger asChild>
                 <Button className="ml-2">New Folder</Button>
@@ -505,7 +581,7 @@ function DocumentsPageContent() {
                       <div className="font-medium">{p[p.length - 1]}</div>
                       <div className="text-xs text-muted-foreground">{getDocumentsInPath(p).length} items</div>
                     </div>
-                    {hasRoleAtLeast('contentManager') && (
+                    {hasRoleAtLeast('systemAdmin') && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -541,6 +617,7 @@ function DocumentsPageContent() {
                     <th className="text-left p-3">Name</th>
                         <th className="text-left p-3">Type</th>
                         <th className="text-left p-3">Sender</th>
+                        <th className="text-left p-3">Team</th>
                     <th className="text-left p-3">Date</th>
                     <th className="p-3"></th>
                   </tr>
@@ -569,9 +646,32 @@ function DocumentsPageContent() {
                         <span className="rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide">FOLDER</span>
                       </td>
                       <td className="p-3">—</td>
-                      <td className="p-3">{getDocumentsInPath(p).length} items</td>
-                      <td className="p-3 text-right">
+                      <td className="p-3">
+                        {hasRoleAtLeast('systemAdmin') ? (
+                          (() => {
+                            const key = p.join('/');
+                            const ids = folderAccess[key] || [];
+                            if (ids.length === 0) return (
+                              <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">General</span>
+                            );
+                            const first = departments.find(d => d.id === ids[0]);
+                            const rest = ids.length - 1;
+                            return (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={first?.color || 'default'}>{first?.name || '—'}</span>
+                                {rest > 0 && <span className="text-xs text-muted-foreground">+{rest}</span>}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-muted-foreground">{getDocumentsInPath(p).length} items</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right flex items-center justify-end gap-3">
                         <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); setPath(p); }}>Open</button>
+                        {hasRoleAtLeast('systemAdmin') && (
+                          <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); openShare(p); }}>Share</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -591,7 +691,7 @@ function DocumentsPageContent() {
                                 autoFocus
                               />
                             ) : (
-                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={(e) => { e.preventDefault(); startEdit(d); }}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
+                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={hasRoleAtLeast('systemAdmin') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
                             )}
                           </PopoverTrigger>
                           <PopoverContent align="start" className="w-96 p-4">
@@ -606,6 +706,22 @@ function DocumentsPageContent() {
                         <span className="rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide">{getExt(d)}</span>
                       </td>
                       <td className="p-3">{d.sender || '—'}</td>
+                      <td className="p-3">
+                        {hasRoleAtLeast('systemAdmin') ? (
+                          (() => {
+                            const deptId = (d as any).departmentId || (d as any).department_id || null;
+                            const dept = departments.find(x => x.id === deptId);
+                            if (!dept) return <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">General</span>;
+                            return (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dept.color || 'default'}>{dept.name}</span>
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="p-3">{formatNiceDate(d)}</td>
                       <td className="p-3 text-right flex items-center justify-end gap-3">
                         {d.versionNumber && (
@@ -637,7 +753,14 @@ function DocumentsPageContent() {
                         <Link href={`/documents/${d.id}`} className="flex flex-col gap-3">
                           <div className="flex items-center justify-between">
                             <ThemeIcon icon={FileText} className="h-8 w-8" />
-                            <span className="rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide">{(d.documentType || d.type)}</span>
+                            <div className="flex items-center gap-2">
+                              {hasRoleAtLeast('systemAdmin') && (() => {
+                                const deptId = (d as any).departmentId || (d as any).department_id || null;
+                                const dep = departments.find((x:any) => x.id === deptId);
+                                return dep ? <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dep.color || 'default'}>{dep.name}</span> : null;
+                              })()}
+                              <span className="rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide">{(d.documentType || d.type)}</span>
+                            </div>
                           </div>
                           {editingId === d.id ? (
                             <input
@@ -649,7 +772,7 @@ function DocumentsPageContent() {
                               autoFocus
                             />
                           ) : (
-                            <div className="font-medium line-clamp-2" onDoubleClick={(e) => { e.preventDefault(); startEdit(d); }}>{d.title || d.name}</div>
+                            <div className="font-medium line-clamp-2" onDoubleClick={hasRoleAtLeast('systemAdmin') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}>{d.title || d.name}</div>
                           )}
                         </Link>
                       </CardContent>
@@ -678,6 +801,11 @@ function DocumentsPageContent() {
                           <p className="text-sm text-muted-foreground line-clamp-2">Purpose: {d.aiPurpose}</p>
                         )}
                       </div>
+                      {hasRoleAtLeast('systemAdmin') && (() => {
+                        const deptId = (d as any).departmentId || (d as any).department_id || null;
+                        const dep = departments.find((x:any) => x.id === deptId);
+                        return dep ? <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dep.color || 'default'}>{dep.name}</span> : null;
+                      })()}
                     </div>
                     <div className="rounded-md border p-3 text-sm text-muted-foreground flex items-center gap-4">
                       <span>From <span className="text-foreground">{d.sender || '—'}</span> → To <span className="text-foreground">{d.receiver || '—'}</span></span>
@@ -701,6 +829,29 @@ function DocumentsPageContent() {
       <Chatbot documents={documents} />
       
       {/* Folder Deletion Confirmation Dialog */}
+      <UiDialog open={shareOpen} onOpenChange={setShareOpen}>
+        <UiDialogContent>
+          <UiDialogHeader>
+            <UiDialogTitle>Share folder {sharePath.join(' / ') || '/'}</UiDialogTitle>
+          </UiDialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Select teams that should access this folder and its subfolders.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              {departments.map(d => (
+                <label key={d.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={shareDeptIds.includes(d.id)} onCheckedChange={(v:any)=>toggleShareDept(d.id, !!v)} />
+                  <span className="capitalize" data-color={d.color || 'default'}>{d.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <UiDialogFooter>
+            <Button variant="outline" onClick={()=>setShareOpen(false)}>Cancel</Button>
+            <Button onClick={saveShare}>Save</Button>
+          </UiDialogFooter>
+        </UiDialogContent>
+      </UiDialog>
+
       <Dialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -723,9 +874,9 @@ function DocumentsPageContent() {
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="move_to_root" id="move" />
                       <label htmlFor="move" className="text-sm">
-                        <span className="font-medium">Move documents to root folder</span>
+                        <span className="font-medium">Move documents to parent folder</span>
                         <br />
-                        <span className="text-muted-foreground">Documents will be preserved and moved to the root folder</span>
+                        <span className="text-muted-foreground">Documents will be preserved and moved one level up</span>
                       </label>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -776,5 +927,3 @@ export default function DocumentsPage() {
     </Suspense>
   );
 }
-
-

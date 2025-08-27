@@ -1,0 +1,408 @@
+"use client";
+
+import * as React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Mail, Trash2 } from 'lucide-react';
+import { apiFetch, getApiContext } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import { useUsers } from '@/hooks/use-users';
+import { useEffect } from 'react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+
+export default function UsersManagement() {
+  const { users, addUser, removeUser, updateUser } = useUsers();
+  const { toast } = useToast();
+  const [form, setForm] = React.useState({ 
+    username: '', 
+    email: '', 
+    role: 'member', 
+    password: '', 
+    amount: 3, 
+    unit: 'days' as 'minutes' | 'hours' | 'days' 
+  });
+  const [inviting, setInviting] = React.useState(false);
+
+  // Load org users from backend for admin/manager visibility
+  useEffect(() => {
+    (async () => {
+      try {
+        const orgId = getApiContext().orgId || '';
+        if (!orgId) return;
+        const list = await apiFetch<any[]>(`/orgs/${orgId}/users`);
+        // Replace local list with authoritative server rows for display purposes
+        // Map to the directory shape while keeping real values for table
+        const mapped = list.map(u => ({
+          username: u.userId, // keep true id to address DELETE /users/:userId
+          displayName: u.displayName || u.app_users?.display_name || '',
+          email: u.email || '',
+          role: (u.role === 'orgAdmin' ? 'systemAdmin' : u.role),
+          password: '',
+          expiresAt: u.expires_at || undefined,
+          departments: Array.isArray(u.departments) ? u.departments : [],
+        }));
+        // Reset then add
+        mapped.forEach(m => addUser(m));
+      } catch {}
+    })();
+  }, [addUser]);
+
+  // Listen for team membership changes to refresh team badges
+  useEffect(() => {
+    const onChanged = () => { void refreshUsers(); };
+    window.addEventListener('org-users-changed', onChanged);
+    return () => window.removeEventListener('org-users-changed', onChanged);
+  }, []);
+
+  const refreshUsers = async () => {
+    try {
+      const orgId = getApiContext().orgId || '';
+      if (!orgId) return;
+      const list = await apiFetch<any[]>(`/orgs/${orgId}/users`);
+      const mapped = (list || []).map(u => ({
+        username: u.userId,
+        displayName: u.displayName || u.app_users?.display_name || '',
+        email: u.email || '',
+        role: (u.role === 'orgAdmin' ? 'systemAdmin' : u.role),
+        password: '',
+        expiresAt: u.expires_at || undefined,
+      }));
+      mapped.forEach((m) => {
+        const existing = users.find(x => x.username === m.username);
+        if (!existing) addUser(m);
+        else updateUser(m.username, () => m);
+      });
+    } catch {}
+  };
+
+  const onCreate = async () => {
+    const username = form.username.trim();
+    if (!username) return;
+    if (form.password && form.password.length < 6) {
+      toast({ 
+        title: 'Password too short', 
+        description: 'Password must be at least 6 characters.', 
+        variant: 'destructive' as any 
+      });
+      return;
+    }
+    const ms = form.unit === 'minutes' ? form.amount*60*1000 : 
+               form.unit === 'hours' ? form.amount*60*60*1000 : 
+               form.amount*24*60*60*1000;
+    const expiresAt = form.role === 'guest' ? new Date(Date.now() + ms).toISOString() : undefined;
+    
+    // Call backend invite endpoint first; only add to list on success
+    try {
+      const orgId = getApiContext().orgId || '';
+      if (form.email.trim() && orgId) {
+        const resp: any = await apiFetch(`/orgs/${orgId}/users`, {
+          method: 'POST',
+          body: {
+            email: form.email.trim(),
+            display_name: form.username.trim() || undefined,
+            role: form.role,
+            expires_at: expiresAt,
+            password: form.password ? form.password : undefined,
+          },
+        });
+        // Use authoritative user_id from server to avoid duplicate phantom rows
+        const userId = resp?.user_id || resp?.userId || null;
+        addUser({
+          username: userId || username,
+          displayName: form.username.trim(),
+          email: form.email.trim(),
+          role: form.role as any,
+          password: form.password || 'Temp#1234',
+          expiresAt,
+        });
+
+        toast({
+          title: 'User invited',
+          description: `${form.email.trim()} has been invited to the organization.`,
+        });
+
+        setForm({ username: '', email: '', role: 'member', password: '', amount: 3, unit: 'days' });
+        setInviting(false);
+        // Refresh users to pull authoritative display names from server for pickers
+        await refreshUsers();
+      }
+    } catch (e: any) {
+      const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to create user';
+      toast({ 
+        title: 'Could not create user', 
+        description: msg, 
+        variant: 'destructive' as any 
+      });
+      return; // Don't clear the form on failure
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'systemAdmin': return 'System Administrator';
+      case 'teamLead': return 'Team Lead';
+      case 'member': return 'Member';
+      case 'guest': return 'Guest';
+      default: return role;
+    }
+  };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'systemAdmin': return 'bg-red-100 text-red-800';
+      case 'teamLead': return 'bg-blue-100 text-blue-800';
+      case 'member': return 'bg-green-100 text-green-800';
+      case 'guest': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getTeamBadges = (user: any) => {
+    const depts = Array.isArray(user.departments) ? user.departments : [];
+    return depts.slice(0, 2);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Team Mates</h2>
+          <p className="text-sm text-muted-foreground">
+            Invite people and assign roles per team.
+          </p>
+        </div>
+        <Button 
+          onClick={() => setInviting(true)}
+          className="bg-purple-600 hover:bg-purple-700"
+        >
+          <Mail className="w-4 h-4 mr-2" />
+          Invite
+        </Button>
+      </div>
+
+      {/* Invite User Form */}
+      {inviting && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Invite New User</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
+              <Input 
+                placeholder="Username" 
+                value={form.username} 
+                onChange={(e) => setForm({ ...form, username: e.target.value })} 
+              />
+              <Input 
+                placeholder="Email" 
+                value={form.email} 
+                onChange={(e) => setForm({ ...form, email: e.target.value })} 
+              />
+              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="teamLead">Team Lead</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="guest">Guest (Temp)</SelectItem>
+                </SelectContent>
+              </Select>
+              <div>
+                <Input 
+                  placeholder="Password (optional, min 6)" 
+                  value={form.password} 
+                  onChange={(e) => setForm({ ...form, password: e.target.value })} 
+                />
+                {form.password && form.password.length < 6 && (
+                  <p className="text-[11px] text-destructive mt-1">Minimum 6 characters.</p>
+                )}
+              </div>
+              {form.role === 'guest' ? (
+                <div className="flex gap-2 items-center">
+                  <Input 
+                    type="number" 
+                    min={1} 
+                    className="w-20" 
+                    placeholder="Qty" 
+                    value={form.amount} 
+                    onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} 
+                  />
+                  <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v as any })}>
+                    <SelectTrigger className="w-28">
+                      <SelectValue placeholder="Unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">Minutes</SelectItem>
+                      <SelectItem value="hours">Hours</SelectItem>
+                      <SelectItem value="days">Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
+                    Create
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2 items-center">
+                  <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
+                    Create
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setInviting(false)}>
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Users Table */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left p-4 font-medium text-sm">Name</th>
+                  <th className="text-left p-4 font-medium text-sm">Email</th>
+                  <th className="text-left p-4 font-medium text-sm">Teams</th>
+                  <th className="text-left p-4 font-medium text-sm">Role</th>
+                  <th className="text-right p-4 font-medium text-sm">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map(u => (
+                  <tr key={u.username} className="border-b">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center text-sm font-medium">
+                          {(u.displayName || u.username).slice(0, 2).toUpperCase()}
+                        </div>
+                        <span className="font-medium">{u.displayName || u.username}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm text-muted-foreground">
+                      {u.email || '—'}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {getTeamBadges(u).map((d: any) => (
+                          <Badge key={d.id} variant="secondary" className="capitalize" data-color={d.color || 'default'}>
+                            {d.name}
+                          </Badge>
+                        ))}
+                        {Array.isArray(u.departments) && u.departments.length > 2 && (
+                          <span className="text-xs text-muted-foreground">+{u.departments.length - 2}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <Select
+                        value={u.role as any}
+                        onValueChange={async (v) => {
+                          try {
+                            const orgId = getApiContext().orgId || '';
+                            if (orgId) {
+                              await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, {
+                                method: 'PATCH',
+                                body: { role: v === 'systemAdmin' ? 'orgAdmin' : v },
+                              });
+                            }
+                            updateUser(u.username, prev => ({ ...prev, role: v as any }));
+                            toast({ 
+                              title: 'Role updated', 
+                              description: `${u.email || u.username} is now ${getRoleLabel(v)}.` 
+                            });
+                          } catch (e: any) {
+                            const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to update role';
+                            toast({ 
+                              title: 'Could not update role', 
+                              description: msg, 
+                              variant: 'destructive' as any 
+                            });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-[140px]" disabled={u.role === 'systemAdmin'}>
+                          <SelectValue placeholder="Role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="systemAdmin">System Administrator</SelectItem>
+                          <SelectItem value="teamLead">Team Lead</SelectItem>
+                          <SelectItem value="member">Member</SelectItem>
+                          <SelectItem value="guest">Guest</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="p-4 text-right">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={u.role === 'systemAdmin'}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove user from organization?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will revoke access for {u.email || u.username}. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction asChild>
+                              <Button 
+                                size="sm" 
+                                variant="destructive" 
+                                disabled={u.role === 'systemAdmin'}
+                                onClick={async () => {
+                                  try {
+                                    const orgId = getApiContext().orgId || '';
+                                    if (orgId) await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
+                                  } catch {}
+                                  removeUser(u.username);
+                                  toast({ 
+                                    title: 'User removed', 
+                                    description: `${u.email || u.username} no longer has access.` 
+                                  });
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {users.length === 0 && (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No users yet. Invite your first team member to get started.
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

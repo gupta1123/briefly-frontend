@@ -20,6 +20,7 @@ import type { Document, StoredDocument } from '@/lib/types';
 import { ocrAndDigitalizeDocument } from '@/ai/flows/ocr-and-digitalize-documents';
 import { extractDocumentMetadata } from '@/ai/flows/extract-document-metadata';
 import { apiFetch, getApiContext } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 const toDataUri = (file: File): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -66,9 +67,15 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
       // 1) Direct upload to our backend (which writes to Supabase Storage)
       const form = new FormData();
       form.append('file', file);
+      // Include Supabase JWT for backend auth
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
       const uploadRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787'}/orgs/${orgId}/uploads/direct`, {
         method: 'POST',
-        headers: { 'X-Org-Id': orgId },
+        headers: { 
+          'X-Org-Id': orgId,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: form,
       });
       if (!uploadRes.ok) {

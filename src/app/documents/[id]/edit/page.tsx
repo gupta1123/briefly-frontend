@@ -14,7 +14,8 @@ import { formatAppDateTime } from '@/lib/utils';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
 import { useCategories } from '@/hooks/use-categories';
-import { FileText, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, Link as LinkIcon } from 'lucide-react';
+import { FileText, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, Link as LinkIcon, ArrowUp, ArrowDown, Crown } from 'lucide-react';
+import { apiFetch, getApiContext } from '@/lib/api';
 
 export default function EditDocumentPage() {
   const params = useParams<{ id: string }>();
@@ -40,6 +41,24 @@ export default function EditDocumentPage() {
   });
   const [linkedIds, setLinkedIds] = React.useState<string[]>((doc as any)?.linkedDocumentIds || []);
   const [linkQuery, setLinkQuery] = React.useState('');
+  const [relationships, setRelationships] = React.useState<{ linked: any[]; incoming: any[]; outgoing: any[]; versions: any[] }>({ linked: [], incoming: [], outgoing: [], versions: [] });
+  const [relLoading, setRelLoading] = React.useState(false);
+
+  const loadRelationships = React.useCallback(async () => {
+    if (!doc) return;
+    try {
+      setRelLoading(true);
+      const { orgId } = getApiContext();
+      const data = await apiFetch(`/orgs/${orgId}/documents/${doc.id}/relationships`);
+      setRelationships(data || { linked: [], incoming: [], outgoing: [], versions: [] });
+    } catch (e) {
+      console.error('Failed to load relationships in edit page:', e);
+    } finally {
+      setRelLoading(false);
+    }
+  }, [doc?.id]);
+
+  React.useEffect(() => { loadRelationships(); }, [loadRelationships]);
 
   const onSave = async () => {
     setSaving(true);
@@ -66,7 +85,6 @@ export default function EditDocumentPage() {
       tags: form.tags.split(',').map((s: string) => s.trim()).filter(Boolean),
       description: form.description,
       folderPath: newPathArr,
-      linkedDocumentIds: linkedIds,
     });
     setSaving(false);
     router.push(`/documents/${doc.id}`);
@@ -209,67 +227,48 @@ export default function EditDocumentPage() {
                 </label>
                 <div className="mt-3 space-y-4">
                   
-                  {/* Current Links */}
-                  {linkedIds.length > 0 && (
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground mb-2">
-                        Currently Linked ({linkedIds.length})
-                      </div>
+                  {/* Linked (incoming + outgoing) */}
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Linked Documents ({(relationships.incoming?.length || 0) + (relationships.outgoing?.length || 0)})
+                    </div>
+                    {relLoading ? (
+                      <div className="text-xs text-muted-foreground">Loading…</div>
+                    ) : (
                       <div className="space-y-2">
-                  {linkedIds.map(id => {
-                          const d = documents.find(x => x.id === id);
-                          if (!d) return null;
-                          
-                          // Check if this is part of a version group
-                          const isVersioned = d.versionGroupId && d.versionGroupId === doc.versionGroupId;
-                          const versions = documents.filter(docItem => 
-                            (docItem.versionGroupId || (docItem as any).version_group_id) === d.versionGroupId
-                          ).sort((a, b) => (a.versionNumber || a.version || 1) - (b.versionNumber || b.version || 1));
-                          
-                    return (
-                            <div key={id} className="flex items-center justify-between rounded-md border p-2 bg-background">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="truncate font-medium" title={d.title || d.name}>
-                                    {d.title || d.name}
-                                  </span>
-                                  {isVersioned && (
-                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                                      Same Version Group
-                                    </span>
-                                  )}
-                                  {d.versionGroupId && !isVersioned && (
-                                    <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
-                                      v{d.versionNumber || d.version || 1}
-                      </span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-1">
-                                  {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
-                                  {versions.length > 1 && (
-                                    <span className="ml-2">({versions.length} versions)</span>
-                                  )}
-                                </div>
+                        {[...(relationships.outgoing || []), ...(relationships.incoming || [])].map((rel: any) => (
+                          <div key={`${rel.id}-${rel.direction}`} className="flex items-center justify-between rounded-md border p-2 bg-background">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-medium" title={rel.title}>
+                                  {rel.title}
+                                </span>
+                                {rel.versionNumber && (
+                                  <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">v{rel.versionNumber}</span>
+                                )}
                               </div>
-                              <div className="flex items-center gap-1">
-                                <Button size="sm" variant="ghost" asChild>
-                                  <Link href={`/documents/${d.id}`} target="_blank">View</Link>
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost" 
-                                  onClick={() => setLinkedIds(prev => prev.filter(x => x !== id))}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  Remove
-                                </Button>
+                              <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                                <span>{rel.type}</span>
+                                <span className={rel.direction === 'outgoing' ? 'text-green-600' : 'text-blue-600'}>
+                                  {rel.direction === 'outgoing' ? '↗ links to' : '↙ linked from'}
+                                </span>
                               </div>
                             </div>
-                    );
-                  })}
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" variant="ghost" asChild>
+                                <Link href={`/documents/${rel.id}`} target="_blank">View</Link>
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={async () => {
+                                try { const { orgId } = getApiContext(); await apiFetch(`/orgs/${orgId}/documents/${doc.id}/link/${rel.id}`, { method: 'DELETE' }); await loadRelationships(); } catch(e){ console.error('unlink failed', e);} }}>Remove</Button>
+                            </div>
+                          </div>
+                        ))}
+                        {((relationships.incoming?.length || 0) + (relationships.outgoing?.length || 0)) === 0 && (
+                          <div className="text-xs text-muted-foreground">No links yet.</div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {/* Removed Smart Suggestions - users should search manually */}
                   <div>
@@ -294,61 +293,50 @@ export default function EditDocumentPage() {
                   />
                     {linkQuery.trim() && (
                       <div className="max-h-48 overflow-y-auto rounded-md border bg-background">
-                    {documents
-                          .filter(d => d.id !== doc.id && !linkedIds.includes(d.id))
-                          .filter(d => {
-                            const searchText = linkQuery.toLowerCase();
-                        return (
-                              (d.title || d.name || '').toLowerCase().includes(searchText) ||
-                              (d.sender || '').toLowerCase().includes(searchText) ||
-                              (d.receiver || '').toLowerCase().includes(searchText) ||
-                              (d.documentType || d.type || '').toLowerCase().includes(searchText)
-                            );
-                          })
-                          .slice(0, 20)
-                          .map(d => (
-                            <div key={d.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent/40 border-b last:border-b-0">
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate font-medium" title={d.title || d.name}>
-                                  {d.title || d.name}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {formatAppDateTime(d.uploadedAt)} · {(d.documentType || d.type)}
-                                  {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
-                                </div>
-                            </div>
-                              <Button 
-                                size="sm" 
-                                variant="default"
-                                onClick={() => {
-                                  setLinkedIds(prev => [...prev, d.id]);
-                                  setLinkQuery(''); // Clear search after adding
-                                }}
-                                className="text-xs h-7"
-                              >
-                                Add
-                              </Button>
-                            </div>
-                          ))}
-                        {documents.filter(d => d.id !== doc.id && !linkedIds.includes(d.id)).filter(d => {
-                          const searchText = linkQuery.toLowerCase();
-                          return (
-                            (d.title || d.name || '').toLowerCase().includes(searchText) ||
-                            (d.sender || '').toLowerCase().includes(searchText) ||
-                            (d.receiver || '').toLowerCase().includes(searchText) ||
-                            (d.documentType || d.type || '').toLowerCase().includes(searchText)
-                          );
-                        }).length === 0 && (
-                          <div className="p-3 text-sm text-muted-foreground text-center">
-                            No documents found matching "{linkQuery}"
-                          </div>
-                        )}
+                        <ServerSearchResults docId={doc.id} query={linkQuery} onAdd={async (targetId) => {
+                          try { const { orgId } = getApiContext(); await apiFetch(`/orgs/${orgId}/documents/${doc.id}/link`, { method: 'POST', body: { linkedId: targetId, linkType: 'related' } }); setLinkQuery(''); await loadRelationships(); } catch(e){ console.error('link failed', e);} }} />
                       </div>
                     )}
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* Version History */}
+            <div className="mt-6">
+              <div className="text-xs font-medium text-muted-foreground mb-2">Version History</div>
+              <div className="space-y-2">
+                {doc?.versionGroupId && (
+                  <div className="p-3 rounded-md border bg-background/50 flex items-center justify-between">
+                    <div className="text-sm">
+                      <span className="font-medium">{doc?.title || doc?.filename || 'Untitled'}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">v{doc?.versionNumber || 1}</span>
+                      <span className="ml-2 inline-flex items-center gap-1 text-xs"><Crown className="h-3 w-3" /> Current</span>
+                    </div>
+                  </div>
+                )}
+                {(relationships.versions || []).sort((a:any,b:any) => (b.versionNumber||0)-(a.versionNumber||0)).map((v:any) => (
+                  <div key={v.id} className="p-3 rounded-md border bg-background flex items-center justify-between">
+                    <div className="text-sm">
+                      <span className="font-medium">{v.title}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">v{v.versionNumber || 'Unknown'}</span>
+                      {v.isCurrentVersion && <span className="ml-2 inline-flex items-center gap-1 text-xs"><Crown className="h-3 w-3" /> Current</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!v.isCurrentVersion && (
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={async () => {
+                          try { const { orgId } = getApiContext(); await apiFetch(`/orgs/${orgId}/documents/${v.id}/set-current`, { method: 'POST' }); await loadRelationships(); } catch(e){ console.error(e);} }}>Set Current</Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={async () => {
+                        try { const { orgId } = getApiContext(); await apiFetch(`/orgs/${orgId}/documents/${doc?.id}/move-version`, { method: 'POST', body: { fromVersion: v.versionNumber, toVersion: (v.versionNumber||1)+1 } }); await loadRelationships(); } catch(e){ console.error(e);} }} title="Move later"><ArrowDown className="h-4 w-4" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={async () => {
+                        try { const { orgId } = getApiContext(); await apiFetch(`/orgs/${orgId}/documents/${doc?.id}/move-version`, { method: 'POST', body: { fromVersion: v.versionNumber, toVersion: (v.versionNumber||1)-1 } }); await loadRelationships(); } catch(e){ console.error(e);} }} title="Move earlier"><ArrowUp className="h-4 w-4" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-6 flex justify-between">
               <Button variant="destructive" onClick={onDelete}>Delete</Button>
               <div className="flex gap-2">
@@ -366,4 +354,41 @@ export default function EditDocumentPage() {
   );
 }
 
-
+function ServerSearchResults({ docId, query, onAdd }: { docId: string; query: string; onAdd: (id: string) => void }) {
+  const [rows, setRows] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const { orgId } = getApiContext();
+        const data = await apiFetch<any[]>(`/orgs/${orgId}/documents?q=${encodeURIComponent(query)}&limit=100`);
+        if (!cancelled) setRows(Array.isArray(data) ? data : []);
+      } catch (e) {
+        if (!cancelled) setRows([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [docId, query]);
+  if (loading) return <div className="p-3 text-xs text-muted-foreground">Loading…</div>;
+  if (!rows || rows.length === 0) return <div className="p-3 text-sm text-muted-foreground text-center">No documents found matching "{query}"</div>;
+  return (
+    <div>
+      {rows.map((d:any) => (
+        <div key={d.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent/40 border-b last:border-b-0">
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium" title={d.title || d.name}>{d.title || d.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {(d.documentType || d.type)}
+              {d.versionGroupId && <span className="ml-1">v{d.versionNumber || d.version || 1}</span>}
+            </div>
+          </div>
+          <Button size="sm" variant="default" onClick={() => onAdd(d.id)} className="text-xs h-7">Add</Button>
+        </div>
+      ))}
+    </div>
+  );
+}

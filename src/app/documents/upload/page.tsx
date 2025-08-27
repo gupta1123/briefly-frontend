@@ -20,6 +20,7 @@ import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiS
 // Calls will be proxied via backend: sign upload, finalize, analyze
 import { apiFetch, getApiContext } from '@/lib/api';
 import { useDocuments } from '@/hooks/use-documents';
+import { useDepartments } from '@/hooks/use-departments';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { computeContentHash } from '@/lib/utils';
@@ -50,6 +51,7 @@ function UploadContent() {
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { addDocument, documents, linkAsNewVersion, refresh } = useDocuments();
+  const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartments();
   const router = useRouter();
   const { categories } = useCategories();
   
@@ -89,12 +91,14 @@ function UploadContent() {
   const [docType, setDocType] = useState<Document['type']>('PDF');
   const [extracted, setExtracted] = useState<Extracted | null>(null);
   const { folders, createFolder } = useDocuments();
+  const [preferredBaseId, setPreferredBaseId] = useState<string | null>(null);
   const { hasRoleAtLeast } = useAuth();
   const [folderPath, setFolderPath] = useState<string[]>([]);
   const searchParams = useSearchParams();
   
   useEffect(() => {
     const p = searchParams?.get('path');
+    const v = searchParams?.get('version');
     if (p && p.trim()) {
       const pathArray = p.split('/').filter(Boolean);
       setFolderPath(pathArray);
@@ -102,6 +106,11 @@ function UploadContent() {
     } else {
       setFolderPath([]);
       console.log('Upload page initialized in root folder');
+    }
+    if (v && v.trim()) {
+      setPreferredBaseId(v);
+    } else {
+      setPreferredBaseId(null);
     }
   }, [searchParams]);
 
@@ -120,32 +129,17 @@ function UploadContent() {
       linkMode: 'new' as const,
     })));
     
-    // Check for duplicates in both queue and existing documents
+    // Only dedupe within queue; allow matching existing docs (we will suggest linking as version instead)
     const queueHashes = new Set(queue.map(q => q.hash).filter(Boolean));
-    const docHashes = new Set(documents.map(d => d.contentHash).filter(Boolean));
-    
-    const deduped = entries.filter(e => {
-      if (!e.hash) return true; // Allow files without hash
+    const filtered = entries.filter(e => {
+      if (!e.hash) return true;
       if (queueHashes.has(e.hash)) {
         console.log('Skipping duplicate in queue:', e.file.name, 'hash:', e.hash);
         return false;
       }
-      if (docHashes.has(e.hash)) {
-        console.log('File already exists in documents:', e.file.name, 'hash:', e.hash);
-        return false;
-      }
       return true;
     });
-    
-    const skippedCount = entries.length - deduped.length;
-    if (skippedCount > 0) {
-      toast({ 
-        title: `Skipped ${skippedCount} duplicate${skippedCount > 1 ? 's' : ''}`, 
-        description: skippedCount > 1 ? 'Some files already exist' : 'File already exists',
-      });
-    }
-    
-    setQueue(prev => [...prev, ...deduped]);
+    setQueue(prev => [...prev, ...filtered]);
   };
 
   const onBrowse = () => {
@@ -201,10 +195,26 @@ function UploadContent() {
       // We'll only store file location on Save to avoid orphan rows in case user cancels
 
       // 3) Ask backend AI to analyze from signed Storage URL
-      const analyzeResp = await apiFetch<{ ocrText: string; metadata: any }>(`/orgs/${orgId}/uploads/analyze`, {
-        method: 'POST',
-        body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
-      });
+      let analyzeResp: { ocrText: string; metadata: any };
+      try {
+        analyzeResp = await apiFetch<{ ocrText: string; metadata: any }>(`/orgs/${orgId}/uploads/analyze`, {
+          method: 'POST',
+          body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
+        });
+      } catch (e: any) {
+        // Gracefully accept server fallback when AI is unavailable (HTTP 503)
+        const status = (e && e.status) || 0;
+        const fallback = (e && e.data && e.data.fallback) || null;
+        if (status === 503 && fallback && (typeof fallback === 'object')) {
+          analyzeResp = fallback as { ocrText: string; metadata: any };
+          toast({
+            title: 'AI is busy — using fallback',
+            description: 'Metadata was prefilled from filename. You can edit before saving; background processing will enhance details later.',
+          });
+        } else {
+          throw e;
+        }
+      }
       const ocrResult = { extractedText: analyzeResp.ocrText } as any;
       const metadataResult = analyzeResp.metadata as any;
 
@@ -252,8 +262,8 @@ function UploadContent() {
         progress: 100,
         senderOptions,
         receiverOptions,
-        linkMode: candidates.length > 0 ? 'version' : 'new', 
-        baseId: candidates[0]?.id, 
+        linkMode: preferredBaseId ? 'version' : (candidates.length > 0 ? 'version' : 'new'), 
+        baseId: preferredBaseId || candidates[0]?.id, 
         storageKey: signResp.storageKey 
       } : q));
       toast({ title: 'Processed', description: `${item.file.name} analyzed by AI.` });
@@ -414,6 +424,8 @@ function UploadContent() {
       tags: (tagsArray.length ? tagsArray : (item.extracted.metadata.tags || [])).filter(Boolean),
       contentHash: item.hash,
     };
+    // Attach department selection for backend creation
+    (newDoc as any).departmentId = selectedDepartmentId || undefined;
     
     console.log('Creating document with folderPath:', folderPath, 'Type:', typeof folderPath, 'Is Array:', Array.isArray(folderPath));
     console.log('newDoc.folderPath:', newDoc.folderPath, 'Type:', typeof newDoc.folderPath, 'Is Array:', Array.isArray(newDoc.folderPath));
@@ -450,8 +462,8 @@ function UploadContent() {
     }
     // Link choice
     // Basic required fields enforcement
-    if (!newDoc.title || !newDoc.subject || (newDoc.tags || []).length === 0 || (newDoc.keywords || []).length === 0) {
-      toast({ title: 'Missing required fields', description: 'Title, subject, keywords, and tags are required. Please fill them before saving.', variant: 'destructive' });
+    if (!newDoc.title) {
+      toast({ title: 'Missing required fields', description: 'Title is required. Please fill it before saving.', variant: 'destructive' });
       return;
     }
 
@@ -463,7 +475,29 @@ function UploadContent() {
 
     if (item.linkMode === 'version' && item.baseId) {
       console.log('🔍 Linking as new version to document:', item.baseId);
-      linkAsNewVersion(item.baseId, newDoc as any);
+      const created = await linkAsNewVersion(item.baseId, newDoc as any);
+      try {
+        const orgId = getApiContext().orgId || '';
+        await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
+          method: 'POST',
+          body: {
+            documentId: created.id,
+            storageKey: item.storageKey,
+            fileSizeBytes: item.file.size,
+            mimeType: item.file.type || 'application/octet-stream',
+            contentHash: item.hash,
+          },
+        });
+        try {
+          await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
+            method: 'POST',
+            body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
+          });
+        } catch {}
+      } catch (e) {
+        console.error('Finalize failed for version:', e);
+        throw e;
+      }
     } else {
       console.log('🔍 Creating new document with data:', {
         title: newDoc.title,
@@ -562,15 +596,32 @@ function UploadContent() {
           sticky
         />
         <div className="px-4 md:px-6">
-        <p className="text-sm text-muted-foreground">Add a new document to your collection.</p>
-        {!hasRoleAtLeast('contentManager') && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">Add a new document to your collection.</p>
+          {hasRoleAtLeast('systemAdmin') && folderPath.length === 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm">Department</span>
+              <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)}>
+                <UiSelectTrigger className="w-[220px]"><UiSelectValue placeholder="Select" /></UiSelectTrigger>
+                <UiSelectContent>
+                  {departments.map(d => (<UiSelectItem key={d.id} value={d.id}>{d.name}</UiSelectItem>))}
+                </UiSelectContent>
+              </UiSelect>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Department: {folderPath.length > 0 ? 'Inherited from folder' : (departments.find(d => d.id === selectedDepartmentId)?.name || 'Your team')}
+            </div>
+          )}
+        </div>
+        {!hasRoleAtLeast('member') && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
             <div className="font-semibold text-destructive">Uploading is restricted</div>
             <p className="text-sm text-muted-foreground mt-1">Your role does not include upload permissions. Please contact an administrator to request <span className="font-medium">Content Manager</span> access or share files with someone who can upload on your behalf.</p>
           </div>
         )}
 
-        {hasRoleAtLeast('contentManager') && queue.length === 0 && (
+        {hasRoleAtLeast('member') && queue.length === 0 && (
           <Card className="rounded-2xl">
             <CardContent className="py-10">
               <div
@@ -615,7 +666,7 @@ function UploadContent() {
           </Card>
         )}
 
-        {hasRoleAtLeast('contentManager') && queue.length > 0 && (
+        {hasRoleAtLeast('member') && queue.length > 0 && (
           <>
             <Card className="rounded-2xl">
               <CardHeader className="flex flex-col gap-2">
@@ -1109,5 +1160,3 @@ export default function UploadPage() {
     </Suspense>
   );
 }
-
-

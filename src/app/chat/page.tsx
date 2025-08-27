@@ -37,35 +37,33 @@ function ChatContent() {
   }, [documents, docId, includeLinked, entityScope]);
   return (
     <AppLayout>
-      <div className="p-0 md:p-0 h-[calc(100vh-4rem)] flex flex-col">
+      <div className="relative h-[calc(100vh-4rem)] flex flex-col bg-gradient-to-b from-background via-background to-background">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-muted/40 to-transparent" />
         <PageHeader
-            title="Ask Briefly"
-            subtitle={docId && selected[0] ? `Chat about “${selected[0].title || selected[0].name}” or its related documents.` : 'Chat with your documents for instant insights.'}
-            meta={docId ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Switch id="include-linked" checked={includeLinked} onCheckedChange={setIncludeLinked} />
-                <label htmlFor="include-linked">Include linked docs (versions + related)</label>
-              </div>
-            ) : null}
-            sticky
-            icon={<MessageSquare className="h-5 w-5" />}
-            containerClassName="max-w-6xl"
-          />
-        <div className="px-4 md:px-6 flex-1">
-          <div className="mx-auto max-w-6xl h-full flex flex-col">
-          {docId && (
-            <div className="mb-3 flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-muted-foreground mr-2">Scope:</span>
-              <Button size="sm" variant={entityScope ? 'outline' : 'default'} onClick={() => setEntityScope('')}>All</Button>
-              {[...new Set(selected.flatMap(d => [d.sender, d.receiver].filter(Boolean) as string[]))].slice(0,6).map(e => (
-                <Button key={e} size="sm" variant={entityScope === e ? 'default' : 'outline'} onClick={() => setEntityScope(e)}>{e}</Button>
-              ))}
+          title="Ask Briefly"
+          subtitle={docId && selected[0] ? `Chat about “${selected[0].title || selected[0].name}” or its related documents.` : 'Chat with your documents for instant insights.'}
+          meta={docId ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Switch id="include-linked" checked={includeLinked} onCheckedChange={setIncludeLinked} />
+              <label htmlFor="include-linked">Include linked docs (versions + related)</label>
             </div>
-          )}
-          <div className="flex-1 relative">
-            {/* Embed the chatbot full-page */}
+          ) : null}
+          sticky
+          icon={<MessageSquare className="h-5 w-5" />}
+          containerClassName=""
+        />
+        <div className="flex-1 px-3 md:px-6">
+          <div className="h-full">
+            {docId && (
+              <div className="mb-3 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground mr-2">Scope:</span>
+                <Button size="sm" variant={entityScope ? 'outline' : 'default'} onClick={() => setEntityScope('')}>All</Button>
+                {[...new Set(selected.flatMap(d => [d.sender, d.receiver].filter(Boolean) as string[]))].slice(0,6).map(e => (
+                  <Button key={e} size="sm" variant={entityScope === e ? 'default' : 'outline'} onClick={() => setEntityScope(e)}>{e}</Button>
+                ))}
+              </div>
+            )}
             <Chatbot documents={selected} embed />
-          </div>
           </div>
         </div>
       </div>
@@ -80,5 +78,3 @@ export default function ChatPage() {
     </Suspense>
   );
 }
-
-

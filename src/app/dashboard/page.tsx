@@ -3,6 +3,7 @@ import AppLayout from '@/components/layout/app-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { H1, Muted } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
+import { useDepartments } from '@/hooks/use-departments';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useDocuments } from '@/hooks/use-documents';
@@ -18,11 +19,7 @@ export default function DashboardPage() {
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-8">
-        <PageHeader
-          title="Welcome to Briefly"
-          subtitle="Manage your documents, get AI insights, and streamline your workflows."
-          sticky
-        />
+        <HeaderWithIdentity />
         <div className="px-4 md:px-6">
         <MainSections />
         </div>
@@ -192,29 +189,53 @@ function getThemeColors(accentColor: string) {
 
 function MainSections() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'systemAdmin' || user?.role === 'contentManager';
-  
-  if (isAdmin) {
+  const showStats = !!user && (user.role === 'systemAdmin' || user.role === 'teamLead' || user.role === 'member');
+  // Avoid redundancy: if showing stats, don't render separate QuickActions/RecentDocuments here,
+  // since AdminStats already includes them.
+  if (showStats) {
     return (
       <div className="space-y-6">
         <AdminStats />
       </div>
     );
   }
-  
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <QuickActions />
-        <div className="rounded-2xl border bg-muted/20 p-6 flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p className="text-sm">Document stats available for admins</p>
-          </div>
-        </div>
+        <RecentDocuments />
       </div>
-      <RecentDocuments />
     </div>
+  );
+}
+
+function HeaderWithIdentity() {
+  const { user } = useAuth();
+  const { departments, selectedDepartmentId } = useDepartments();
+  const team = departments.find((d) => d.id === selectedDepartmentId) || null;
+  const roleText = (r?: string) => {
+    switch ((r || '').toLowerCase()) {
+      case 'systemadmin': return 'Admin';
+      case 'teamlead': return 'Team Lead';
+      case 'member': return 'Member';
+      case 'guest': return 'Guest';
+      default: return r || '';
+    }
+  };
+  return (
+    <PageHeader
+      title="Welcome to Briefly"
+      subtitle="Manage your documents, get AI insights, and streamline your workflows."
+      sticky
+      meta={(
+        <div className="flex items-center gap-2 text-xs">
+          <span className="px-2 py-0.5 rounded border">{roleText(user?.role)}</span>
+          {team && (
+            <span className="px-2 py-0.5 rounded border capitalize" data-color={team.color || 'default'}>{team.name}</span>
+          )}
+        </div>
+      )}
+    />
   );
 }
 
@@ -397,8 +418,4 @@ function MetricCard({ title, value, icon: Icon, trend, color }: {
     </Card>
   );
 }
-
-
-
-
 

@@ -1,7 +1,8 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { useAudit } from './use-audit';
+import { useDepartments } from './use-departments';
 import { useAuth } from './use-auth';
 import type { StoredDocument } from '@/lib/types';
 import { apiFetch, getApiContext, onApiContextChange } from '@/lib/api';
@@ -12,6 +13,8 @@ import { parseFlexibleDate } from '@/lib/utils';
 type DocumentsContextValue = {
   documents: StoredDocument[];
   folders: string[][];
+  isLoading: boolean;
+  hasLoadedAll: boolean;
   refresh: () => Promise<void>;
   loadAllDocuments: () => Promise<void>;
   addDocument: (doc: Partial<StoredDocument>) => Promise<StoredDocument>;
@@ -42,6 +45,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   const [folders, setFolders] = useState<string[][]>([]);
   const { user } = useAuth();
   const { log } = useAudit();
+  const { selectedDepartmentId } = useDepartments();
 
   const getOrgId = () => getApiContext().orgId || '';
 
@@ -56,47 +60,130 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     return Array.from(derived).filter(Boolean).map(s => s.split('/'));
   }, []);
 
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadedAll, setHasLoadedAll] = useState(false);
+  const loadingRef = useRef(false);
+
   const refresh = useCallback(async () => {
     const orgId = getOrgId();
-    if (!orgId) return;
-    // Optimize: Load only recent 50 documents initially for faster login
-    const list = await apiFetch<any[]>(`/orgs/${orgId}/documents?limit=50`);
-    const revived = (list || []).map((d) => ({ 
-      ...d, 
-      uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
-    })) as StoredDocument[];
-    // Extra safety: ensure no folder documents are included
-    const filteredRevived = revived.filter(d => d.type !== 'folder');
-    setDocuments(filteredRevived);
-    setFolders(prev => deriveFolders(filteredRevived, prev));
-  }, [deriveFolders]);
+    if (!orgId || loadingRef.current) return;
+    
+    loadingRef.current = true;
+    setIsLoading(true);
+    
+    try {
+      // Include department filter if user has selected a specific department
+      const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
+      const list = await apiFetch<any[]>(`/orgs/${orgId}/documents?limit=50${deptParam}`);
+      const revived = (list || []).map((d) => ({ 
+        ...d, 
+        uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
+      })) as StoredDocument[];
+      // Extra safety: ensure no folder documents are included
+      const filteredRevived = revived.filter(d => d.type !== 'folder');
+      setDocuments(filteredRevived);
+      // Merge derived folders from docs with persisted folder placeholders from server (root path)
+      let nextFolders = deriveFolders(filteredRevived, []);
+      try {
+        const root = await apiFetch<{ name: string; fullPath: string[] }[]>(`/orgs/${orgId}/folders?path=`);
+        const persisted = (root || []).map(r => r.fullPath);
+        const merged = new Set(nextFolders.map(p => p.join('/')));
+        for (const p of persisted) merged.add(p.join('/'));
+        nextFolders = Array.from(merged).map(s => s.split('/')).filter(arr => arr.filter(Boolean).length > 0);
+      } catch {}
+      setFolders(prev => {
+        const set = new Set(prev.map(p => p.join('/')));
+        for (const p of nextFolders) set.add(p.join('/'));
+        return Array.from(set).map(s => s.split('/'));
+      });
+      setHasLoadedAll(false);
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    } finally {
+      setIsLoading(false);
+      loadingRef.current = false;
+    }
+  }, [deriveFolders, selectedDepartmentId]);
 
   const loadAllDocuments = useCallback(async () => {
     const orgId = getOrgId();
-    if (!orgId) return;
-    // Load all documents when explicitly requested (e.g., for search)
-    const list = await apiFetch<any[]>(`/orgs/${orgId}/documents`);
-    const revived = (list || []).map((d) => ({ 
-      ...d, 
-      uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
-    })) as StoredDocument[];
-    // Extra safety: ensure no folder documents are included
-    const filteredRevived = revived.filter(d => d.type !== 'folder');
-    setDocuments(filteredRevived);
-    setFolders(prev => deriveFolders(filteredRevived, prev));
-  }, [deriveFolders]);
+    if (!orgId || loadingRef.current || hasLoadedAll) return;
+    
+    loadingRef.current = true;
+    
+    try {
+      // Include department filter when loading all documents
+      const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
+      const list = await apiFetch<any[]>(`/orgs/${orgId}/documents${deptParam}`);
+      const revived = (list || []).map((d) => ({ 
+        ...d, 
+        uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
+      })) as StoredDocument[];
+      // Extra safety: ensure no folder documents are included
+      const filteredRevived = revived.filter(d => d.type !== 'folder');
+      setDocuments(filteredRevived);
+      // Merge derived folders with persisted root placeholders
+      let nextFolders = deriveFolders(filteredRevived, []);
+      try {
+        const root = await apiFetch<{ name: string; fullPath: string[] }[]>(`/orgs/${orgId}/folders?path=`);
+        const persisted = (root || []).map(r => r.fullPath);
+        const merged = new Set(nextFolders.map(p => p.join('/')));
+        for (const p of persisted) merged.add(p.join('/'));
+        nextFolders = Array.from(merged).map(s => s.split('/')).filter(arr => arr.filter(Boolean).length > 0);
+      } catch {}
+      setFolders(prev => {
+        const set = new Set(prev.map(p => p.join('/')));
+        for (const p of nextFolders) set.add(p.join('/'));
+        return Array.from(set).map(s => s.split('/'));
+      });
+      setHasLoadedAll(true);
+    } catch (error) {
+      console.error('Failed to load all documents:', error);
+    } finally {
+      loadingRef.current = false;
+    }
+  }, [deriveFolders, hasLoadedAll, selectedDepartmentId]);
 
-  // Load documents on mount
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  // Load documents when org context changes, but with a small delay to not block login
-  useEffect(() => {
-    const off = onApiContextChange(() => { 
-      // Add small delay to not block login completion
-      setTimeout(() => void refresh(), 100);
-    });
-    return () => { off(); };
+  // Load documents on mount - but only once
+  useEffect(() => { 
+    if (!isLoading && documents.length === 0) {
+      void refresh(); 
+    }
   }, [refresh]);
+
+  // Load documents when org context changes - debounced to prevent multiple calls
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    const off = onApiContextChange(() => { 
+      // Clear any pending refresh
+      if (timeoutId) clearTimeout(timeoutId);
+      
+      // Reset state for new org
+      setHasLoadedAll(false);
+      setDocuments([]);
+      setFolders([]);
+      
+      // Debounce the refresh call
+      timeoutId = setTimeout(() => void refresh(), 200);
+    });
+    
+    return () => { 
+      off(); 
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [refresh]);
+
+  // Refresh documents when selected department changes
+  useEffect(() => {
+    if (selectedDepartmentId !== undefined && documents.length > 0) {
+      // Reset state and refresh with new department
+      setHasLoadedAll(false);
+      setDocuments([]);
+      setFolders([]);
+      void refresh();
+    }
+  }, [selectedDepartmentId, refresh]);
 
   const addDocument = useCallback(async (doc: Partial<StoredDocument>) => {
     const orgId = getOrgId();
@@ -196,7 +283,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await apiFetch(`/orgs/${orgId}/folders`, { 
         method: 'POST', 
-        body: { parentPath, name: clean } 
+        body: { parentPath, name: clean, departmentId: selectedDepartmentId || undefined } 
       });
       
       // Update local state
@@ -208,7 +295,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to create folder:', error);
       throw error;
     }
-  }, [getOrgId]);
+  }, [getOrgId, selectedDepartmentId]);
 
   const listFolders = useCallback((path: string[]) => folders.filter(p => p.length === path.length + 1 && path.every((seg, i) => seg === p[i])), [folders]);
 
@@ -288,6 +375,8 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     documents,
     folders,
+    isLoading,
+    hasLoadedAll,
     refresh,
     loadAllDocuments,
     addDocument,
@@ -304,7 +393,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     linkAsNewVersion,
     unlinkFromVersionGroup,
     setCurrentVersion,
-  }), [documents, folders, refresh, loadAllDocuments, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
+  }), [documents, folders, isLoading, hasLoadedAll, refresh, loadAllDocuments, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
 
   return <DocumentsContext.Provider value={value}>{children}</DocumentsContext.Provider>;
 }
@@ -314,5 +403,3 @@ export function useDocuments() {
   if (!ctx) throw new Error('useDocuments must be used within a DocumentsProvider');
   return ctx;
 }
-
-

@@ -10,11 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { formatAppDateTime } from '@/lib/utils';
 import { useUsers } from '@/hooks/use-users';
 import { useDocuments } from '@/hooks/use-documents';
 import { useSettings } from '@/hooks/use-settings';
+import { useDepartments } from '@/hooks/use-departments';
+import { apiFetch, getApiContext } from '@/lib/api';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
@@ -159,12 +161,38 @@ export default function AuditPage() {
   const { user } = useAuth();
   const { users } = useUsers();
   const { getDocumentById } = useDocuments();
-  const canView = user?.role === 'systemAdmin' || user?.role === 'contentManager';
+  const [canViewAudit, setCanViewAudit] = useState(false);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  
+  // Check if user can access audit logs
+  useEffect(() => {
+    const checkAuditAccess = async () => {
+      try {
+        const { orgId } = getApiContext();
+        if (!orgId) return;
+        
+        // Check if user can access audit logs (backend handles all access logic)
+        const canAccess = await apiFetch<boolean>(`/orgs/${orgId}/audit/can-access`);
+        setCanViewAudit(canAccess);
+      } catch (error) {
+        console.error('Error checking audit access:', error);
+        setCanViewAudit(false);
+      } finally {
+        setCheckingAccess(false);
+      }
+    };
+
+    if (user) {
+      checkAuditAccess();
+    } else {
+      setCheckingAccess(false);
+    }
+  }, [user]);
 
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().slice(0,10);
-  const defaultEnd = fmt(today);
-  const defaultStart = fmt(new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)); // last 7 days
+  const defaultEnd = fmt(today); // today
+  const defaultStart = fmt(new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000)); // yesterday
 
   const [q, setQ] = useState('');
   const [type, setType] = useState<string>('all');
@@ -206,11 +234,25 @@ export default function AuditPage() {
     return filtered.slice(startIdx, startIdx + pageSize);
   }, [filtered, currentPage]);
 
-  if (!canView) {
+  if (checkingAccess) {
     return (
       <AppLayout>
         <div className="p-4 md:p-6">
-          <div className="rounded-md border p-4 text-sm text-muted-foreground">You do not have access to activity logs.</div>
+          <div className="rounded-md border p-4 text-sm text-muted-foreground">
+            Checking access permissions...
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!canViewAudit) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6">
+          <div className="rounded-md border p-4 text-sm text-muted-foreground">
+            You do not have access to activity logs. Only organization admins and team leads can view audit logs.
+          </div>
         </div>
       </AppLayout>
     );
@@ -402,4 +444,3 @@ export default function AuditPage() {
     </AppLayout>
   );
 }
-

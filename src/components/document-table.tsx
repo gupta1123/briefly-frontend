@@ -31,6 +31,8 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { apiFetch, getApiContext } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 const typeIcons = {
   PDF: <FileText className="h-5 w-5 text-red-500" />,
@@ -41,6 +43,18 @@ const typeIcons = {
 };
 
 export default function DocumentTable({ documents }: { documents: Document[] }) {
+  const { toast } = useToast();
+  const { orgId } = getApiContext();
+
+  const reingest = async (docId: string) => {
+    if (!orgId) { toast({ title: 'No org selected', variant: 'destructive' }); return; }
+    try {
+      await apiFetch(`/orgs/${orgId}/documents/${docId}/reingest`, { method: 'POST' });
+      toast({ title: 'Re-ingest started', description: 'Processing will run in the background.' });
+    } catch (e: any) {
+      toast({ title: 'Re-ingest failed', description: e?.message || 'Unknown error', variant: 'destructive' });
+    }
+  };
   return (
     <Card>
       <CardHeader>
@@ -53,6 +67,7 @@ export default function DocumentTable({ documents }: { documents: Document[] }) 
             <TableRow>
               <TableHead className="w-[45%]">Name</TableHead>
               <TableHead className="hidden md:table-cell">Type</TableHead>
+              <TableHead className="hidden xl:table-cell">Semantic</TableHead>
               <TableHead className="hidden lg:table-cell">Uploaded</TableHead>
               <TableHead className="hidden md:table-cell">Version</TableHead>
               <TableHead>Keywords</TableHead>
@@ -75,6 +90,13 @@ export default function DocumentTable({ documents }: { documents: Document[] }) 
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
                   <Badge variant="outline">{doc.type}</Badge>
+                </TableCell>
+                <TableCell className="hidden xl:table-cell">
+                  {doc.semanticReady ? (
+                    <Badge className="bg-emerald-600 text-emerald-50 hover:bg-emerald-600">Ready</Badge>
+                  ) : (
+                    <Badge variant="secondary">Processing</Badge>
+                  )}
                 </TableCell>
                 <TableCell className="hidden lg:table-cell">
                   {formatAppDateTime(doc.uploadedAt)}
@@ -104,6 +126,9 @@ export default function DocumentTable({ documents }: { documents: Document[] }) 
                       </DropdownMenuItem>
                       <DropdownMenuItem>
                         <Download className="mr-2 h-4 w-4" /> Download
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => reingest(doc.id)}>
+                        <FileClock className="mr-2 h-4 w-4" /> Re-ingest (OCR + Embeddings)
                       </DropdownMenuItem>
                       <DropdownMenuItem>
                         <FileClock className="mr-2 h-4 w-4" /> View History

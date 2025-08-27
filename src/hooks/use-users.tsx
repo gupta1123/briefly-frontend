@@ -12,6 +12,7 @@ export type DirectoryUser = {
   expiresAt?: string; // for guests
   allowedFolders?: string[][];
   allowedDocIds?: string[];
+  departments?: { id: string; name: string; color?: string | null }[];
 };
 
 type UsersContextValue = {
@@ -60,4 +61,3 @@ export function useUsers() {
   if (!ctx) throw new Error('useUsers must be used within a UsersProvider');
   return ctx;
 }
-

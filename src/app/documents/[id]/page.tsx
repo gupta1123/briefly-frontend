@@ -17,13 +17,17 @@ import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/hooks/use-toast';
 import FilePreview from '@/components/file-preview';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents } = useDocuments();
-  const { hasRoleAtLeast } = useAuth();
+  const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents, refresh } = useDocuments();
+  const { hasRoleAtLeast, isLoading: authLoading } = useAuth();
   const [documentsLoaded, setDocumentsLoaded] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const formatSize = (bytes?: number) => {
     if (bytes === undefined) return '—';
     if (bytes < 1024) return `${bytes} B`;
@@ -31,18 +35,55 @@ export default function DocumentDetailPage() {
     if (bytes < 1024*1024*1024) return `${(bytes/1024/1024).toFixed(2)} MB`;
     return `${(bytes/1024/1024/1024).toFixed(2)} GB`;
   };
+  
   const doc = getDocumentById(params.id);
   const [ocrText, setOcrText] = useState<string>('');
   const [loadingExtraction, setLoadingExtraction] = useState<boolean>(false);
   const [referrer, setReferrer] = useState<string | null>(null);
   const loadAttempted = useRef<Set<string>>(new Set());
 
-  // Track when documents are loaded
+  // Track when documents are loaded with better logic
   useEffect(() => {
+    if (authLoading) return; // Wait for auth to complete
+    
     if (documents.length > 0) {
       setDocumentsLoaded(true);
+      setInitialLoading(false);
+      
+      // If we have documents but not this specific one, it might not exist
+      if (!doc && !loadAttempted.current.has(params.id)) {
+        loadAttempted.current.add(params.id);
+        // Try to fetch this specific document directly
+        const fetchDoc = async () => {
+          try {
+            const { orgId } = getApiContext();
+            await apiFetch(`/orgs/${orgId}/documents/${params.id}`);
+            // If successful, it exists but might not be in our current list
+            // Force a refresh to get it
+            setTimeout(() => window.location.reload(), 100);
+          } catch (error: any) {
+            if (error.status === 404) {
+              setLoadError('Document not found');
+            } else {
+              setLoadError('Failed to load document');
+            }
+            setInitialLoading(false);
+          }
+        };
+        fetchDoc();
+      }
+    } else if (!authLoading) {
+      // Auth is done but no documents loaded yet - wait a bit more
+      const timer = setTimeout(() => {
+        setInitialLoading(false);
+        if (!documentsLoaded) {
+          setLoadError('Failed to load documents');
+        }
+      }, 5000); // 5 second timeout
+      
+      return () => clearTimeout(timer);
     }
-  }, [documents.length]);
+  }, [documents.length, doc, params.id, authLoading, documentsLoaded]);
 
   // Set referrer on mount for smart back navigation
   useEffect(() => {
@@ -121,11 +162,58 @@ export default function DocumentDetailPage() {
     );
   }
 
-  // Show not found if documents are loaded but document doesn't exist
-  if (!doc) {
+  // Show loading states and handle errors properly
+  if (authLoading || initialLoading) {
     return (
-    <AppLayout>
-      <div className="p-4 md:p-6">
+      <AppLayout>
+        <div className="p-4 md:p-6">
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <div className="text-lg font-medium text-muted-foreground mb-2">
+              {authLoading ? 'Authenticating...' : 'Loading document...'}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Please wait while we fetch your document.
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Show error state
+  if (loadError) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6">
+          <div className="text-center py-12">
+            <div className="text-lg font-medium text-destructive mb-2">{loadError}</div>
+            <div className="text-sm text-muted-foreground mb-4">
+              {loadError === 'Document not found' 
+                ? 'The document you\'re looking for might have been deleted or moved.'
+                : 'There was a problem loading the document. Please try again.'}
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button asChild variant="outline">
+                <Link href="/documents">Back to Documents</Link>
+              </Button>
+              {loadError !== 'Document not found' && (
+                <Button onClick={() => window.location.reload()}>
+                  Try Again
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Final check - if we've loaded documents but still don't have this one
+  if (documentsLoaded && !doc) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6">
           <div className="text-center py-12">
             <div className="text-lg font-medium text-muted-foreground mb-2">Document not found</div>
             <div className="text-sm text-muted-foreground mb-4">
@@ -135,9 +223,28 @@ export default function DocumentDetailPage() {
               <Link href="/documents">Back to Documents</Link>
             </Button>
           </div>
-      </div>
-    </AppLayout>
-  );
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // At this point, doc should be defined since we've handled all error cases
+  if (!doc) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6">
+          <div className="text-center py-12">
+            <div className="text-lg font-medium text-muted-foreground mb-2">Unexpected Error</div>
+            <div className="text-sm text-muted-foreground mb-4">
+              Document reference lost. Please try refreshing the page.
+            </div>
+            <Button onClick={() => window.location.reload()}>
+              Refresh Page
+            </Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
   }
 
   // Create proper back navigation based on referrer and document's folder path
@@ -234,12 +341,12 @@ export default function DocumentDetailPage() {
           ) : null}
           actions={
             <div className="flex items-center gap-2">
-              {hasRoleAtLeast('contentManager') && (
+              {hasRoleAtLeast('member') && (
                 <>
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc)}>
                     <Download className="h-4 w-4" /> Download
                   </Button>
-                  <Button variant="destructive" size="sm" className="gap-2" onClick={() => handleDelete(doc.id, removeDocument, router)}>
+                  <Button variant="destructive" size="sm" className="gap-2" onClick={() => setConfirmDeleteOpen(true)}>
                     <Trash2 className="h-4 w-4" /> Delete
                   </Button>
                   <Button asChild size="sm" className="gap-2">
@@ -247,13 +354,34 @@ export default function DocumentDetailPage() {
                   </Button>
                 </>
               )}
-              <Button asChild size="sm" variant="outline" className="gap-2">
-                <Link href={`/chat?docId=${doc.id}`}>Ask about this</Link>
-              </Button>
+              {/* Removed "Ask about this" button per requirement */}
             </div>
           }
           sticky
         />
+
+        {/* Confirm delete dialog for single document */}
+        <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Document</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to delete "{doc?.title || doc?.filename || doc?.name}"? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={() => { setConfirmDeleteOpen(false); handleDelete(doc!.id, removeDocument, router); }}
+              >
+                Delete
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
           {/* Left stack - 60% */}
@@ -330,9 +458,21 @@ export default function DocumentDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
-                {doc.description && (
+                {/* Debug: Show what fields are available */}
+                <div className="text-xs text-muted-foreground mb-2">
+                  Available fields: summary={doc.summary ? 'YES' : 'NO'}, description={doc.description ? 'YES' : 'NO'}
+                </div>
+                
+                {doc.summary && (
                   <div>
-                    <h3 className="font-semibold mb-1">AI Summary</h3>
+                    <h3 className="font-semibold mb-1">AI Summary (from summary field)</h3>
+                    <p className="text-muted-foreground whitespace-pre-wrap break-words">{doc.summary}</p>
+                  </div>
+                )}
+                
+                {doc.description && !doc.summary && (
+                  <div>
+                    <h3 className="font-semibold mb-1">AI Summary (from description field)</h3>
                     <p className="text-muted-foreground whitespace-pre-wrap break-words">{doc.description}</p>
                   </div>
                 )}
@@ -375,11 +515,12 @@ export default function DocumentDetailPage() {
             </Card>
 
             <Card id="linked">
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <LinkIcon className="h-5 w-5" />
                   Linked Documents
                 </CardTitle>
+                <SuggestLinksButton docId={doc.id} onLinked={() => { /* refresh handled internally */ }} />
               </CardHeader>
               <CardContent className="text-sm">
                 <LinkedList docId={doc.id} />
@@ -905,10 +1046,28 @@ function LinkedList({ docId }: { docId: string }) {
                           <span>{formatAppDateTime(new Date(version.uploadedAt))}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
                           <Link href={`/documents/${version.id}`}>View</Link>
                         </Button>
+                        {!version.isCurrentVersion && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={async () => {
+                              try {
+                                const { orgId } = getApiContext();
+                                await apiFetch(`/orgs/${orgId}/documents/${version.id}/set-current`, { method: 'POST' });
+                                await loadRelationships();
+                              } catch (e) {
+                                console.error('Failed to set current version:', e);
+                              }
+                            }}
+                          >
+                            Set Current
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -945,7 +1104,7 @@ function LinkedList({ docId }: { docId: string }) {
 
           {/* No relationships */}
           {relationships.outgoing.length === 0 && relationships.incoming.length === 0 && relationships.versions.length === 0 && (
-        <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+            <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
               No related documents or versions found
             </div>
           )}
@@ -956,3 +1115,71 @@ function LinkedList({ docId }: { docId: string }) {
     </div>
   );
 }
+
+function SuggestLinksButton({ docId, onLinked }: { docId: string; onLinked?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'sender'|'subject'>('sender');
+  const [loading, setLoading] = useState(false);
+  const [list, setList] = useState<any[]>([]);
+  const { refresh } = useDocuments();
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { orgId } = getApiContext();
+      const data = await apiFetch<{ suggestions: any[] }>(`/orgs/${orgId}/documents/${docId}/suggest-links?by=${mode}`);
+      setList(Array.isArray(data?.suggestions) ? data.suggestions : []);
+    } catch (e) {
+      console.error('Failed to load suggestions:', e);
+      setList([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [docId, mode]);
+  useEffect(() => { if (open) load(); }, [open, load]);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Suggest Links</Button>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Suggest Links</DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center gap-2 mb-3 text-sm">
+          <span>Based on:</span>
+          <Button size="sm" variant={mode==='sender'?'default':'outline'} onClick={() => setMode('sender')}>Sender</Button>
+          <Button size="sm" variant={mode==='subject'?'default':'outline'} onClick={() => setMode('subject')}>Subject</Button>
+          <Button size="sm" variant="ghost" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</Button>
+        </div>
+        <div className="space-y-2 max-h-[50vh] overflow-auto">
+          {list.length === 0 && <div className="text-xs text-muted-foreground">No suggestions found.</div>}
+          {list.map((s) => (
+            <div key={s.id} className="flex items-center justify-between rounded-md border p-3 bg-background">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium" title={s.title}>{s.title || 'Untitled'}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                  {s.type && <span>{s.type}</span>}
+                  {Array.isArray(s.reasons) && s.reasons.length > 0 && (
+                    <span className="truncate">{s.reasons.slice(0,2).join('; ')}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={async () => {
+                  try {
+                    const { orgId } = getApiContext();
+                    await apiFetch(`/orgs/${orgId}/documents/${docId}/link`, { method: 'POST', body: { linkedId: s.id, linkType: 'related' } });
+                    await refresh();
+                    onLinked && onLinked();
+                    setOpen(false);
+                  } catch (e) {
+                    console.error('Failed to link:', e);
+                  }
+                }}>Link</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+// (Inline Suggestions component removed in favor of SuggestLinksButton modal)

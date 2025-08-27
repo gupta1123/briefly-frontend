@@ -3,25 +3,85 @@
 import { useState, useRef, useEffect, useMemo, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { MessageSquare, Send, Loader, FileText, ExternalLink } from 'lucide-react';
+import { MessageSquare, Send, FileText, ExternalLink, Copy, Check, Calendar, Hash, Building2 } from 'lucide-react';
 import { Textarea } from './ui/textarea';
 import { ScrollArea } from './ui/scroll-area';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { cn } from '@/lib/utils';
-import type { Message, StoredDocument } from '@/lib/types';
+import { apiFetch, getApiContext, ssePost } from '@/lib/api';
+import type { Message as ChatMessage, StoredDocument } from '@/lib/types';
 import { answerQuestionsAboutDocuments } from '@/ai/flows/answer-questions-about-documents';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputToolbar,
+  PromptInputTools,
+  PromptInputButton,
+  PromptInputSubmit
+} from '@/components/ai-elements/prompt-input';
+import {
+  Message,
+  MessageContent,
+  MessageAvatar,
+} from '@/components/ai-elements/message';
+import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
+import { Response } from '@/components/ai-elements/response';
+import { Loader } from '@/components/ai-elements/loader';
+import {
+  Task,
+  TaskTrigger,
+  TaskContent,
+  TaskItem
+} from '@/components/ai-elements/task';
+import { Tool } from '@/components/ai-elements/tool';
+import { LinkedDocuments, convertToLinkedDocumentItem } from '@/components/ai-elements/linked-documents';
+import { MetaList } from '@/components/ai-elements/meta-list';
+import { Preview } from '@/components/ai-elements/preview';
+import { Badge } from '@/components/ui/badge';
 
 export default function Chatbot({ documents, embed = false }: { documents: StoredDocument[]; embed?: boolean }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [processingTasks, setProcessingTasks] = useState<{id: string, title: string, items: string[]}[]>([]);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const {toast} = useToast();
   const [exportingCsv, setExportingCsv] = useState(false);
   const [showHints, setShowHints] = useState(false);
+  // Per-message agent info helper
+  type AgentInfo = { mode?: string; stages: string[] };
+  const upsertAgentInfo = (assistantId: string, updater: (prev: AgentInfo) => AgentInfo) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== assistantId) return m;
+      const agent = (m as any).agent as AgentInfo | undefined;
+      const next = updater(agent || { stages: [] });
+      return { ...(m as any), agent: next } as any;
+    }));
+  };
+
+  const copyToClipboard = (text: string, messageId: string) => {
+    try {
+      navigator.clipboard.writeText(text || '');
+      setCopiedMessageId(messageId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text || '';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      setCopiedMessageId(messageId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }
+  };
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const runAbort = useRef<AbortController | null>(null);
+  const cancelRequested = useRef<boolean>(false);
   const [lastFocusDocId, setLastFocusDocId] = useState<string | null>(null);
+  const lastListDocIdsRef = useRef<string[]>([]);
   const docMap = useMemo(() => {
     const m = new Map<string, StoredDocument>();
     for (const d of documents) m.set(d.id, d);
@@ -39,14 +99,98 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
     }, 100);
   };
 
+  const renderSourcesAndCitations = (message: ChatMessage) => {
+    const hasCitations = !!message.citations && message.citations.length > 0;
+    if (!hasCitations) return null;
+    
+    return (
+      <div className="mt-4 space-y-3">
+        {message.citations!.map((c, i) => {
+          // Find the document to get metadata
+          const doc = documents.find(d => d.id === c.docId);
+          
+          return (
+            <Card key={i} className="border border-border/70 bg-card shadow-sm">
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <a
+                      href={c.docId ? `/documents/${c.docId}` : '#'}
+                      className="line-clamp-2 break-words text-base font-semibold hover:underline hover:decoration-foreground hover:underline-offset-[3px] text-foreground"
+                      onClick={(e) => {
+                        if (!c.docId) {
+                          e.preventDefault();
+                          return;
+                        }
+                      }}
+                    >
+                      {c.docName || 'Document'}
+                    </a>
+                    {c.snippet && (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {c.page ? <span className="mr-2 font-medium">Page {c.page}:</span> : null}
+                        {c.snippet}
+                      </p>
+                    )}
+                    
+                    {/* Metadata tags */}
+                    {doc && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {doc.sender && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Building2 className="h-3 w-3 mr-1" />
+                            {doc.sender}
+                          </Badge>
+                        )}
+                        {doc.documentDate && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {doc.documentDate}
+                          </Badge>
+                        )}
+                        {doc.documentType && (
+                          <Badge variant="secondary" className="text-xs">
+                            <FileText className="h-3 w-3 mr-1" />
+                            {doc.documentType}
+                          </Badge>
+                        )}
+                        {doc.type && (
+                          <Badge variant="secondary" className="text-xs">
+                            {doc.type}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Action icon */}
+                  <button
+                    title="Open"
+                    onClick={() => c.docId && window.open(`/documents/${c.docId}`, '_blank')}
+                    className="inline-grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    <span className="sr-only">Open</span>
+                  </button>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
+    const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', content: input };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    cancelRequested.current = false;
+    try { runAbort.current?.abort(); } catch {}
+    runAbort.current = new AbortController();
     scrollToBottom();
     
     // Command parsing: /linked filters or /versions <docId>
@@ -54,32 +198,204 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
     const explicitDocId = identifyExplicitDocMention(input, documents);
     if (explicitDocId) setLastFocusDocId(explicitDocId);
 
-    // Local handler: answer simple "linked docs" queries deterministically when possible
-    const maybeLinked = buildLinkedDocsAnswerIfApplicable(input, messages, documents);
-    if (maybeLinked) {
-      setMessages((prev) => [...prev, maybeLinked]);
-      setIsLoading(false);
-      scrollToBottom();
-      return;
+
+
+
+
+        // If server-agent is enabled, let the server handle metadata and linked queries instead of local shortcuts
+    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT !== '1') {
+      // Local handler: answer metadata queries deterministically when possible
+      const maybeMetadata = await buildMetadataAnswer(input, messages, documents);
+      if (maybeMetadata) {
+        setMessages((prev) => [...prev, maybeMetadata]);
+        setIsLoading(false);
+        scrollToBottom();
+        return;
+      }
+
+      // Local handler: answer simple "linked docs" queries deterministically when possible
+      const maybeLinked = await buildLinkedDocsAnswerIfApplicable(input, messages, documents);
+      if (maybeLinked) {
+        setMessages((prev) => [...prev, maybeLinked]);
+        setIsLoading(false);
+        scrollToBottom();
+        return;
+      }
     }
 
-    // Rank top-K docs client-side by simple relevance to the question to reduce noise
-    const ranked = rankDocumentsByRelevance(effectiveDocs, question).slice(0, 12);
+    // Attempt semantic search against backend (pgvector) to fetch the most relevant docs/chunks
+    let semanticDocs: StoredDocument[] = [];
+    const semanticSnippets = new Map<string, string[]>();
+    try {
+      const { orgId } = getApiContext();
+      if (orgId) {
+        const res = await apiFetch<{ mode: string; docs: { id: string; bestSimilarity?: number }[]; chunks?: { docId: string; snippet: string }[] }>(`/orgs/${orgId}/search/semantic`, {
+          method: 'POST',
+          body: { q: question, limit: 24 },
+          signal: runAbort.current?.signal,
+        });
+        const ids = Array.from(new Set((res.docs || []).map(d => d.id)));
+        semanticDocs = ids
+          .map((id) => documents.find((d) => d.id === id))
+          .filter(Boolean) as StoredDocument[];
+        for (const c of res.chunks || []) {
+          if (!semanticSnippets.has(c.docId)) semanticSnippets.set(c.docId, []);
+          const arr = semanticSnippets.get(c.docId)!;
+          if (arr.length < 2) arr.push(c.snippet);
+        }
+      }
+    } catch (e) {
+      // Silent fallback to heuristic ranking
+    }
+
+    // Local handler: answer preview queries deterministically when possible (after semantic search)
+    // If server-side agent is enabled, defer preview to server; otherwise allow local preview
+    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT !== '1') {
+      const maybePreview = await buildPreviewAnswer(input, messages, documents, semanticSnippets);
+      if (maybePreview) {
+        setMessages((prev) => [...prev, maybePreview]);
+        setIsLoading(false);
+        scrollToBottom();
+        return;
+      }
+    }
+
+    // If server-side agent is enabled, stream from backend orchestrator
+    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT === '1') {
+      try {
+        const { orgId } = getApiContext();
+        if (!orgId) throw new Error('No organization');
+        const assistantId = (Date.now() + 1).toString();
+        const placeholder: ChatMessage = { id: assistantId, role: 'assistant', content: '' };
+        setMessages((prev) => [...prev, placeholder]);
+        // Send a thin conversation summary to help the server infer focus doc from prior citations
+        const conv = messages.slice(-15).map(m => ({ role: m.role, content: m.content, citations: m.citations }));
+        const memory = {
+          focusDocIds: inferFocusDocIds(messages, lastFocusDocId || undefined),
+          lastCitedDocIds: extractLastCitedDocIds(messages),
+          lastListDocIds: lastListDocIdsRef.current,
+        };
+        await ssePost(`/orgs/${orgId}/chat/ask`, { question, conversation: conv, memory }, ({ event, data }) => {
+          if (event === 'delta') {
+            const sanitized = String(data).replace(/\[docIndex:\s*\d+\]/gi, '');
+            setMessages((prev) => prev.map(m => m.id === assistantId ? { ...m, content: (m.content || '') + sanitized } : m));
+            // First content chunk received; hide loader to avoid double bubbles
+            setIsLoading(false);
+            scrollToBottom();
+          }
+          if (event === 'mode' && (data as any)?.mode) {
+            const mode = (data as any).mode as string;
+            upsertAgentInfo(assistantId, (prev) => ({ ...prev, mode }));
+          }
+          if (event === 'stage') {
+            try {
+              const d = data as any;
+              if (d?.agent && d?.step) {
+                const line = `${d.agent}: ${d.step}${d.mode ? ` (${d.mode})` : ''}${typeof d.count === 'number' ? ` [${d.count}]` : ''}`;
+                upsertAgentInfo(assistantId, (prev) => ({ ...prev, stages: [...(prev.stages||[]), line] }));
+              } else if (d?.retrieval) {
+                const line = `Retrieval: ${d.retrieval}`;
+                upsertAgentInfo(assistantId, (prev) => ({ ...prev, stages: [...(prev.stages||[]), line] }));
+              }
+            } catch {}
+          }
+          if (event === 'list' && data && Array.isArray((data as any).items)) {
+            try {
+              const items = (data as any).items as Array<{ index: number; docId: string; title?: string }>;
+              lastListDocIdsRef.current = items.map(i => i.docId).filter(Boolean);
+            } catch {}
+          }
+          if (event === 'metadata' && data) {
+            try {
+              const md = data as any;
+              setMessages((prev) => prev.map(m => m.id === assistantId ? {
+                ...m,
+                metadata: {
+                  subject: md.subject || undefined,
+                  name: md.name || undefined,
+                  sender: (md.senderCanonical || md.sender) || undefined,
+                  receiver: (md.receiverCanonical || md.receiver) || undefined,
+                  date: md.date || undefined,
+                  documentType: md.documentType || undefined,
+                  category: md.category || undefined,
+                  filename: md.filename || undefined,
+                }
+              } : m));
+            } catch {}
+          }
+          if (event === 'linked' && data) {
+            try {
+              const d = data as any;
+              const fromVersions = Array.isArray(d.versions) ? d.versions : [];
+              const fromDocs = Array.isArray(d.documents) ? d.documents : [];
+              const merged = [...fromVersions, ...fromDocs]
+                .map((x: any) => ({ id: x.id, title: x.title, documentDate: x.documentDate }))
+                .filter((x: any) => x && x.id);
+              // de-duplicate by id
+              const dedup = Array.from(new Map(merged.map((x: any) => [x.id, x])).values());
+              setMessages((prev) => prev.map(m => m.id === assistantId ? ({ ...m, linkedDocuments: dedup as any }) : m));
+            } catch {}
+          }
+          if (event === 'preview' && data) {
+            try {
+              const d = data as any;
+              setMessages((prev) => prev.map(m => m.id === assistantId ? ({
+                ...m,
+                preview: { docId: d.docId, title: d.title, url: d.url, lines: Array.isArray(d.lines) ? d.lines : [] }
+              }) : m));
+            } catch {}
+          }
+          if (event === 'end' && data && Array.isArray(data.citations)) {
+            setMessages((prev) => prev.map(m => m.id === assistantId ? { ...m, citations: data.citations } : m));
+            setIsLoading(false);
+            scrollToBottom();
+          }
+        }, { signal: runAbort.current?.signal });
+        setIsLoading(false);
+        scrollToBottom();
+        return;
+      } catch (e) {
+        // Fall through to local path on failure
+      }
+    }
+
+    // Rank top-K docs client-side by simple relevance to the question to reduce noise (fallback)
+    const rankedFallback = rankDocumentsByRelevance(effectiveDocs, question).slice(0, 12);
     // Also materialize linked target docs referenced by ranked docs and by the current focus doc
     const focusIds = inferFocusDocIds(messages, lastFocusDocId || undefined);
     const focusDoc = focusIds.length ? documents.find(d => d.id === focusIds[0]) : undefined;
+    const baseList = semanticDocs.length ? semanticDocs : rankedFallback;
     const candidateLinkIds = new Set<string>();
-    for (const d of ranked) (d.linkedDocumentIds || []).forEach(id => candidateLinkIds.add(id));
+    for (const d of baseList) (d.linkedDocumentIds || []).forEach(id => candidateLinkIds.add(id));
     if (focusDoc) (focusDoc.linkedDocumentIds || []).forEach(id => candidateLinkIds.add(id));
     const linkedTargets = Array.from(candidateLinkIds)
       .map(id => documents.find(d => d.id === id))
       .filter(Boolean) as StoredDocument[];
     // Include some extra docs that themselves have links (to improve graph awareness)
-    const linkedExtras = effectiveDocs.filter(d => (d.linkedDocumentIds || []).length > 0 && !ranked.some(r => r.id === d.id));
+    const linkedExtras = effectiveDocs.filter(d => (d.linkedDocumentIds || []).length > 0 && !baseList.some(r => r.id === d.id));
     // Build unique list with cap
     const toSendMap = new Map<string, StoredDocument>();
-    for (const d of [...ranked, ...linkedTargets, ...linkedExtras]) if (!toSendMap.has(d.id)) toSendMap.set(d.id, d);
+    for (const d of [...baseList, ...linkedTargets, ...linkedExtras]) if (!toSendMap.has(d.id)) toSendMap.set(d.id, d);
     const toSend = Array.from(toSendMap.values()).slice(0, 24);
+
+    // If user asks for the exact line/quote, fetch full OCR text for the primary focus doc to increase recall
+    const wantsExact = /\b(exact line|exact sentence|exact quote|verbatim|quote this|give exact)\b/i.test(question);
+    let extractionDocId: string | null = null;
+    let extractionText: string | null = null;
+    if (wantsExact) {
+      try {
+        const { orgId } = getApiContext();
+        const focusIds = inferFocusDocIds(messages, lastFocusDocId || undefined);
+        const preferredId = explicitDocId || focusIds[0] || (baseList[0]?.id || null);
+        if (orgId && preferredId) {
+          extractionDocId = preferredId;
+        const res = await apiFetch<{ ocrText?: string }>(`/orgs/${orgId}/documents/${preferredId}/extraction`, { signal: runAbort.current?.signal });
+        extractionText = (res?.ocrText || '').trim() || null;
+      }
+    } catch {
+        // best-effort; ignore errors
+      }
+    }
     const structuredDocs = toSend.map(d => ({
       id: d.id,
       name: d.name,
@@ -90,12 +406,15 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
       documentType: d.documentType || d.type,
       tags: d.tags,
       summary: d.summary,
-      content: d.content ?? null,
+      // Prefer semantic snippets; for exact-line requests, provide full OCR text for the focused doc if available
+      content: extractionText && extractionDocId === d.id
+        ? extractionText
+        : (semanticSnippets.get(d.id)?.join('\n---\n') || d.content) ?? null,
       relevanceScore: computeRelevanceScore(d, question),
       subject: d.subject,
       aiKeywords: d.aiKeywords,
       linkedDocumentIds: d.linkedDocumentIds,
-      isLinkedContextOnly: !ranked.some(r => r.id === d.id),
+      isLinkedContextOnly: !baseList.some(r => r.id === d.id),
     }));
 
     try {
@@ -103,13 +422,13 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
       if (extractFields && extractFields.length > 0) {
         const csv = buildCsvFromDocs(effectiveDocs, extractFields);
         const json = exportJson ? JSON.stringify(projectDocs(effectiveDocs, extractFields), null, 2) : undefined;
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `Extracted ${effectiveDocs.length} records.`,
-          csv: exportCsv ? csv : undefined,
-          citations: undefined,
-        };
+              const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `Extracted ${effectiveDocs.length} records.`,
+        csv: exportCsv ? csv : undefined,
+        citations: undefined,
+      };
         if (json) (assistantMessage as any).json = json;
         setMessages((prev) => [...prev, assistantMessage]);
         return;
@@ -119,7 +438,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
           .slice()
           .sort((a,b) => new Date(a.documentDate || a.uploadedAt).getTime() - new Date(b.documentDate || b.uploadedAt).getTime())
           .map(d => `- ${d.documentDate || d.uploadedAt.toISOString().slice(0,10)} · ${d.title || d.name} (${d.documentType || d.type})`);
-        const assistantMessage: Message = {
+        const assistantMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: lines.join('\n') || 'No matching documents.',
@@ -128,6 +447,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
         return;
       }
 
+      if (cancelRequested.current) throw new Error('canceled');
       const response = await answerQuestionsAboutDocuments({
         question,
         documents: structuredDocs,
@@ -139,22 +459,27 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
       const citations = (response as any).citations as { docIndex: number; snippet: string }[] | undefined;
       const assistantId = (Date.now() + 1).toString();
       const finalText = sanitizeInlineJson(response.answer);
-      const assistantMessage: Message = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        citations: citations?.slice(0, 3).map(c => {
-          const doc = structuredDocs[c.docIndex];
-          return doc ? {
-            docId: doc.id,
-            docName: doc.title || doc.name,
-            snippet: c.snippet,
-          } : null;
-        }).filter(Boolean),
-        csv: exportCsv ? buildCsvFromDocs(toSend) : undefined,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      await streamUpdateMessage(setMessages, assistantId, finalText);
+              const assistantMessage: ChatMessage = {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          citations: citations?.slice(0, 3).map(c => {
+            const doc = structuredDocs[c.docIndex];
+            return doc ? {
+              docId: doc.id,
+              docName: doc.title || doc.name,
+              snippet: c.snippet,
+            } : null;
+          }).filter((c): c is NonNullable<typeof c> => c !== null),
+          csv: exportCsv ? buildCsvFromDocs(toSend) : undefined,
+                linkedDocuments: undefined, // Will be set by buildLinkedDocsAnswerIfApplicable if applicable
+                metadata: undefined, // Will be set by buildMetadataAnswer if applicable
+                preview: undefined, // Will be set by buildPreviewAnswer if applicable
+        };
+      if (!cancelRequested.current) {
+        setMessages((prev) => [...prev, assistantMessage]);
+        await streamUpdateMessage(setMessages, assistantId, finalText);
+      }
       // Update focus doc if not explicitly set this turn
       if (!explicitDocId && assistantMessage.citations && assistantMessage.citations.length > 0) {
         const first = assistantMessage.citations[0].docId;
@@ -167,12 +492,18 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
         description: "Sorry, I couldn't get an answer. Please try again.",
         variant: 'destructive',
       });
-      const errorMessage: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: "Sorry, I couldn't get an answer. Please try again." };
+      const errorMessage: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: "Sorry, I couldn't get an answer. Please try again." };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
       scrollToBottom();
     }
+  };
+
+  const handleStop = () => {
+    cancelRequested.current = true;
+    try { runAbort.current?.abort(); } catch {}
+    setIsLoading(false);
   };
   
   useEffect(scrollToBottom, [messages]);
@@ -184,96 +515,193 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
 
   if (embed) {
     return (
-      <div className="flex flex-col h-full rounded-xl border bg-card">
-        <header className="p-4 border-b">
-          <h3 className="font-semibold text-lg">Briefly Assistant</h3>
-          <p className="text-sm text-muted-foreground">Ask anything about your documents.</p>
-        </header>
-        <ScrollArea className="flex-1" ref={scrollAreaRef}>
-          <div className="p-4 space-y-4">
-                {messages.length === 0 && (
-                  <div className="text-center text-sm text-muted-foreground py-8">
-                    Try asking: "What was the revenue in Q4 2023?"
-                  </div>
-                )}
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      'flex items-start gap-3',
-                      message.role === 'user' ? 'justify-end' : 'justify-start'
-                    )}
-                  >
-                    {message.role === 'assistant' && (
-                      <Avatar className="h-8 w-8 bg-primary text-primary-foreground">
-                        <AvatarFallback>AI</AvatarFallback>
-                      </Avatar>
-                    )}
-                    <div
-                      className={cn(
-                        'max-w-[min(720px,85%)] w-fit rounded-2xl px-4 py-2 text-sm leading-relaxed whitespace-pre-wrap',
-                        message.role === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
-                      )}
-                    >
-                      <div className="space-y-2">
-                        <div>{message.content}</div>
-                        {message.role === 'assistant' && renderSourcesAndCitations(message)}
-                        {message.role === 'assistant' && message.csv && (
-                          <div>
-                            <button
-                              className="text-xs underline"
-                              onClick={() => downloadCsv(message.csv!)}
-                            >
-                              Download CSV
-                            </button>
+      <div className="relative flex h-full flex-col">
+        <Conversation className="w-full">
+          <ConversationContent className="space-y-1 px-0 py-4">
+            {messages.map((message) => (
+              <Message from={message.role} key={message.id}>
+                {message.role === 'assistant' ? (
+                  <MessageAvatar src="" name="BF" className="ring-0" />
+                ) : null}
+                <div className="relative">
+                  <MessageContent className="text-[15px] leading-7">
+                    {message.role === 'assistant' ? (
+                      <div className="space-y-4">
+                        {(message as any).agent && (
+                          <div className="text-xs text-muted-foreground">
+                            {((message as any).agent?.mode) ? <div>Mode: {(message as any).agent.mode}</div> : null}
+                            {((message as any).agent?.stages || []).map((s: string, i: number) => (<div key={i}>• {s}</div>))}
                           </div>
                         )}
+                        {/* Main response content */}
+                      <div>
+                          {message.content ? <Response>{message.content}</Response> : <Loader>Thinking...</Loader>}
+                        </div>
+                        
+                        {/* Citations and sources */}
+                        {renderSourcesAndCitations(message)}
+                        
+                        {/* Linked Documents */}
+                        {message.linkedDocuments && message.linkedDocuments.length > 0 && (
+                          <LinkedDocuments 
+                            items={message.linkedDocuments.map(doc => convertToLinkedDocumentItem(doc))}
+                            moreCount={0}
+                          />
+                        )}
+                        
+                        {/* Metadata */}
+                        {message.metadata && (
+                          <MetaList 
+                            subject={message.metadata.subject}
+                            name={message.metadata.name}
+                            sender={message.metadata.sender}
+                            receiver={message.metadata.receiver}
+                            date={message.metadata.date}
+                            reference={message.metadata.reference}
+                            documentType={message.metadata.documentType}
+                            category={message.metadata.category}
+                            filename={message.metadata.filename}
+                          />
+                        )}
+                        
+                        {/* Document Preview */}
+                        {message.preview && (
+                          <div className="mt-4 p-3 rounded-lg border border-border/30 bg-muted/20">
+                            <div className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                              Document Preview
+                            </div>
+                            <div className="mb-2">
+                              <a
+                                href={message.preview.url || `/documents/${message.preview.docId}`}
+                                className="text-sm font-medium text-foreground hover:underline hover:decoration-foreground hover:underline-offset-[3px]"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {message.preview.title || message.preview.docName}
+                              </a>
+                            </div>
+                            <Preview lines={message.preview.lines} maxLines={3} />
+                          </div>
+                        )}
+                        
+                        {/* Data export options */}
+                        {(message.csv || (message as any).json) && (
+                          <div className="pt-2 border-t border-border/20">
+                            <div className="text-xs font-medium tracking-wide uppercase text-muted-foreground/70 mb-2">Export Options</div>
+                            <div className="flex items-center gap-2">
+                        {message.csv && (
+                            <button
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
+                              onClick={() => downloadCsv(message.csv!)}
+                            >
+                                  <FileText className="h-3 w-3" />
+                              Download CSV
+                            </button>
+                        )}
                         {(message as any).json && (
-                          <div>
-                            <button className="text-xs underline" onClick={() => downloadJson((message as any).json)}>Download JSON</button>
+                                <button 
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
+                                  onClick={() => downloadJson((message as any).json)}
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  Download JSON
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
+                    ) : (
+                      <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed">
+                        {message.content}
+                      </div>
+                    )}
+                  </MessageContent>
+                </div>
+                  {message.role === 'assistant' && (
+                  <div className="self-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 active:scale-95"
+                      onClick={() => copyToClipboard(message.content, message.id)}
+                      title="Copy message"
+                    >
+                      {copiedMessageId === message.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </Button>
                     </div>
-                  </div>
-                ))}
-                {isLoading && (
-                    <div className="flex items-start gap-3 justify-start">
-                        <Avatar className="h-8 w-8 bg-primary text-primary-foreground">
-                            <AvatarFallback>AI</AvatarFallback>
-                        </Avatar>
-                        <div className="bg-muted rounded-xl px-4 py-2 flex items-center">
-                            <Loader className="h-4 w-4 animate-spin" />
-                        </div>
-                    </div>
-                )}
-          </div>
-        </ScrollArea>
-        <footer className="p-4 border-t relative">
+                  )}
+                {message.role === 'user' ? (
+                  <MessageAvatar src="" name="You" className="ring-0" />
+                ) : null}
+              </Message>
+            ))}
+            {processingTasks.map((task) => (
+              <Task key={task.id} className="w-full">
+                <TaskTrigger title={task.title} />
+                <TaskContent>
+                  {task.items.map((item, index) => (
+                    <TaskItem key={index}>{item}</TaskItem>
+                  ))}
+                </TaskContent>
+              </Task>
+            ))}
+            {isLoading && (
+              <Message from="assistant" className="justify-start">
+                <MessageAvatar src="" name="BF" className="ring-0" />
+                <MessageContent>
+                  <Loader>Thinking...</Loader>
+                </MessageContent>
+              </Message>
+            )}
+          </ConversationContent>
+          <ConversationScrollButton className="shadow" />
+        </Conversation>
+
+        <div className="pointer-events-none sticky bottom-0 z-10 w-full bg-gradient-to-t from-background to-transparent pb-4 pt-8">
           {showHints && (
-            <SlashHints input={input} docs={documents} onPick={(v) => setInput(v)} />
+            <div className="pointer-events-auto px-3 pb-2">
+              <SlashHints input={input} docs={documents} onPick={(v) => setInput(v)} />
+            </div>
           )}
-          <form onSubmit={handleSubmit} className="flex items-center gap-2">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message..."
-              className="min-h-0 resize-none"
-              rows={1}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                }
-              }}
-            />
-            <Button type="submit" size="icon" disabled={isLoading}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </footer>
+          <div className="pointer-events-auto px-3">
+            <PromptInput onSubmit={handleSubmit} className="rounded-2xl border bg-background shadow-md">
+              <PromptInputTextarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask anything about your documents..."
+                minHeight={52}
+                maxHeight={160}
+              />
+              <PromptInputToolbar>
+                <PromptInputTools>
+                  {documents.length > 0 && (
+                    <PromptInputButton
+                      variant="ghost"
+                      onClick={() => {
+                        const randomDoc = documents[Math.floor(Math.random() * documents.length)];
+                        const docName = randomDoc.title || randomDoc.name || 'document';
+                        setInput(`Give me a summary of ${docName}`);
+                      }}
+                      title="Random document suggestion"
+                    >
+                      <FileText className="h-4 w-4" /> Try a doc
+                    </PromptInputButton>
+                  )}
+                </PromptInputTools>
+                {isLoading ? (
+                  <Button variant="outline" size="sm" onClick={handleStop}>
+                    Stop
+                  </Button>
+                ) : (
+                  <PromptInputSubmit status={isLoading ? 'submitted' : 'ready'} disabled={!input.trim()} />
+                )}
+              </PromptInputToolbar>
+            </PromptInput>
+            <p className="mt-2 px-1 text-center text-xs text-muted-foreground">Briefly can make mistakes. Check important information.</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -298,74 +726,158 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
               <p className="text-sm text-muted-foreground">Ask anything about your documents.</p>
             </header>
             <ScrollArea className="flex-1" ref={scrollAreaRef}>
-              <div className="p-4 space-y-4">
+              <div className="p-4 space-y-1">
                 {messages.length === 0 && (
                   <div className="text-center text-sm text-muted-foreground py-8">
                     Try asking: "What was the revenue in Q4 2023?"
                   </div>
                 )}
                 {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      'flex items-start gap-3',
-                      message.role === 'user' ? 'justify-end' : 'justify-start'
-                    )}
-                  >
-                    {message.role === 'assistant' && (
-                      <Avatar className="h-8 w-8 bg-primary text-primary-foreground">
-                        <AvatarFallback>AI</AvatarFallback>
-                      </Avatar>
-                    )}
-                    <div
-                      className={cn(
-                        'max-w-[min(720px,85%)] w-fit rounded-2xl px-4 py-2 text-sm leading-relaxed whitespace-pre-wrap',
-                        message.role === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
-                      )}
-                    >
-                      <div className="space-y-2">
-                        <div>{message.content}</div>
-                        {message.role === 'assistant' && renderSourcesAndCitations(message)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {isLoading && (
-                    <div className="flex items-start gap-3 justify-start">
-                        <Avatar className="h-8 w-8 bg-primary text-primary-foreground">
-                            <AvatarFallback>AI</AvatarFallback>
-                        </Avatar>
-                        <div className="bg-muted rounded-xl px-4 py-2 flex items-center">
-                            <Loader className="h-4 w-4 animate-spin" />
+                  <Message from={message.role} key={message.id}>
+                    <MessageContent>
+                      {message.role === 'assistant' ? (
+                        <div className="space-y-4">
+                          {(message as any).agent && (
+                            <div className="mb-4">
+                              <Task className="w-full">
+                                <TaskTrigger title={`AI Agent${(message as any).agent?.mode ? ` - ${(message as any).agent.mode}` : ''}`} />
+                                <TaskContent>
+                                  {(message as any).agent?.stages?.map((stage: string, i: number) => (
+                                    <TaskItem key={i}>
+                                      {stage}
+                                    </TaskItem>
+                                  )) || (
+                                    <TaskItem>Initializing...</TaskItem>
+                                  )}
+                                </TaskContent>
+                              </Task>
+                            </div>
+                          )}
+                          {/* Main response content */}
+                        <div>
+                            {message.content ? <Response>{message.content}</Response> : <Loader>Thinking...</Loader>}
+                          </div>
+                          
+                          {/* Citations and sources */}
+                          {renderSourcesAndCitations(message)}
+                          
+                          {/* Linked Documents */}
+                          {message.linkedDocuments && message.linkedDocuments.length > 0 && (
+                            <LinkedDocuments 
+                              items={message.linkedDocuments.map(doc => convertToLinkedDocumentItem(doc))}
+                              moreCount={0}
+                            />
+                          )}
+                          
+                          {/* Metadata */}
+                          {message.metadata && (
+                            <MetaList 
+                              subject={message.metadata.subject}
+                              name={message.metadata.name}
+                              sender={message.metadata.sender}
+                              receiver={message.metadata.receiver}
+                              date={message.metadata.date}
+                              reference={message.metadata.reference}
+                              documentType={message.metadata.documentType}
+                              category={message.metadata.category}
+                              filename={message.metadata.filename}
+                            />
+                          )}
+                          
+                          {/* Document Preview */}
+                          {message.preview && (
+                            <div className="mt-4 p-3 rounded-lg border border-border/30 bg-muted/20">
+                              <div className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                Document Preview
+                              </div>
+                              <div className="mb-2">
+                                <a
+                                  href={message.preview.url || `/documents/${message.preview.docId}`}
+                                  className="text-sm font-medium text-foreground hover:underline hover:decoration-foreground hover:underline-offset-[3px]"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {message.preview.title || message.preview.docName}
+                                </a>
+                              </div>
+                              <Preview lines={message.preview.lines} maxLines={3} />
+                            </div>
+                          )}
                         </div>
-                    </div>
-                )}
+                      ) : (
+                        <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed">
+                          {message.content}
+                        </div>
+                      )}
+                    </MessageContent>
+                    {message.role === 'assistant' && (
+                      <div className="self-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 active:scale-95"
+                          onClick={() => copyToClipboard(message.content, message.id)}
+                          title="Copy message"
+                        >
+                          {copiedMessageId === message.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    )}
+                  </Message>
+                ))}
+                {processingTasks.map((task) => (
+                  <Task key={task.id} className="w-full">
+                    <TaskTrigger title={task.title} />
+                    <TaskContent>
+                      {task.items.map((item, index) => (
+                        <TaskItem key={index}>
+                          {item}
+                        </TaskItem>
+                      ))}
+                    </TaskContent>
+                  </Task>
+                ))}
+                {/* No separate loading bubble; placeholder assistant bubble shows loader */}
               </div>
             </ScrollArea>
-            <footer className="p-4 border-t relative">
+            <footer className="border-t relative">
               {showHints && (
-                <SlashHints input={input} docs={documents} onPick={(v) => setInput(v)} />
+                <div className="p-4">
+                  <SlashHints input={input} docs={documents} onPick={(v) => setInput(v)} />
+                </div>
               )}
-              <form onSubmit={handleSubmit} className="flex items-center gap-2">
-                <Textarea
+              <PromptInput onSubmit={handleSubmit} className="rounded-none border-x-0 border-b-0">
+                <PromptInputTextarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type your message..."
-                  className="min-h-0 resize-none"
-                  rows={1}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e);
-                    }
-                  }}
+                  placeholder="Ask anything about your documents..."
+                  minHeight={48}
+                  maxHeight={120}
                 />
-                <Button type="submit" size="icon" disabled={isLoading}>
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
+                              <PromptInputToolbar>
+                <PromptInputTools>
+                  {documents.length > 0 && (
+                    <PromptInputButton
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        const randomDoc = documents[Math.floor(Math.random() * documents.length)];
+                        const docName = randomDoc.title || randomDoc.name || 'document';
+                        setInput(`Tell me about ${docName}`);
+                      }}
+                      title="Get random document suggestion"
+                    >
+                      <FileText className="h-4 w-4" />
+                    </PromptInputButton>
+                  )}
+                </PromptInputTools>
+                <PromptInputSubmit
+                  status={isLoading ? 'submitted' : 'ready'}
+                  disabled={!input.trim()}
+                />
+              </PromptInputToolbar>
+              </PromptInput>
             </footer>
           </div>
         </PopoverContent>
@@ -434,65 +946,6 @@ function parseCommand(raw: string, docs: StoredDocument[]) {
   return { effectiveDocs: docs, question: text, exportCsv: false, exportJson: false };
 }
 
-function renderSourcesAndCitations(message: Message) {
-  const hasCitations = !!message.citations && message.citations.length > 0;
-  if (!hasCitations) return null;
-  // Separate compact inline citations and a distinct Sources panel
-  return (
-    <div className="mt-3 space-y-2">
-      {/* Inline citations list */}
-      <div className="text-xs text-muted-foreground space-y-1">
-        {message.citations!.map((c, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-foreground text-background text-[10px] font-semibold">{i+1}</span>
-            <div>
-              <span className="font-medium">{c.docName || 'Document'}</span>
-              {c.snippet ? <>: {c.snippet}</> : null}
-              {c.docId ? (
-                <a className="ml-2 underline" href={`/documents/${c.docId}`} onClick={(e) => {
-                  // Verify document exists before navigation
-                  e.preventDefault();
-                  window.location.href = `/documents/${c.docId}`;
-                }}>view</a>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-      {/* Sources card */}
-      <Card className="border-dashed">
-        <CardHeader className="py-3 px-4">
-          <CardTitle className="text-xs font-medium tracking-wide uppercase text-muted-foreground">Sources</CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4 px-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {message.citations!.map((c, i) => (
-              <a key={i} href={c.docId ? `/documents/${c.docId}` : '#'} 
-                className="group block rounded-md border bg-background hover:bg-accent transition-colors"
-                onClick={(e) => {
-                  if (!c.docId) {
-                    e.preventDefault();
-                    return;
-                  }
-                  // Let the navigation proceed normally for valid docIds
-                }}>
-                <div className="flex items-center gap-2 p-2">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{c.docName || 'Document'}</div>
-                    <div className="truncate text-xs text-muted-foreground">{c.snippet || 'Referenced in answer'}</div>
-                  </div>
-                  <ExternalLink className="ml-auto h-3.5 w-3.5 opacity-0 group-hover:opacity-100 text-muted-foreground" />
-                </div>
-              </a>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 function extractArg(args: string, key: string) {
   const re = new RegExp(`${key}:([^\s]+)`, 'i');
   const m = args.match(re);
@@ -505,10 +958,12 @@ function extractQuoted(args: string, key: string) {
 }
 
 function sanitizeInlineJson(text: string): string {
-  // Remove accidental inline JSON arrays of citation objects like: [ { "docIndex": 1, ... } ]
+  // Remove accidental inline JSON arrays of citation objects like: [{"docIndex":1,...}]
   try {
-    // Simple regex to strip bracketed JSON-like arrays
-    return text.replace(/\[\s*\{[^\]]+\}\s*\]/g, '').replace(/\s{2,}/g, ' ').trim();
+    return text
+      .replace(/\[\s*\{[^\]]*?docIndex\s*:\s*\d+[^\]]*?\}\s*\]/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
   } catch {
     return text;
   }
@@ -670,72 +1125,69 @@ function extractQueryTerms(question: string): string[] {
   return cleaned.split(' ').filter(t => t && !stop.has(t)).slice(0, 10);
 }
 
-function buildLinkedDocsAnswerIfApplicable(input: string, history: Message[], docs: StoredDocument[]): Message | null {
+async function buildLinkedDocsAnswerIfApplicable(input: string, history: ChatMessage[], docs: StoredDocument[]): Promise<ChatMessage | null> {
   const text = input.toLowerCase();
-  const mentionsLinked = /\blinked\b|\brelated\b/.test(text);
+  const mentionsLinked = /(\blinked\b|\brelated\b|linked\s+(docs?|documents?))/i.test(text);
   if (!mentionsLinked) return null;
 
   // Check if this is a general "what linked docs do I have" query
-  const isGeneralLinkedQuery = /what.*linked|show.*linked|list.*linked|all.*linked/.test(text) && 
-                              !/for|of|in/.test(text); // not asking for specific doc's links
+  const hasPronounRef = /(to|for|about)?\s*(it|this|that)\b/.test(text);
+  const isGeneralLinkedQuery = !hasPronounRef && /(what|show|list|any|all).*linked/.test(text) && 
+                              !/for\b|of\b|in\b/.test(text); // not asking for specific doc's links
 
   if (isGeneralLinkedQuery) {
-    // Find all documents that have linked documents
+    // Find explicit links
     const docsWithLinks = docs.filter(d => (d.linkedDocumentIds || []).length > 0);
-    
-    if (docsWithLinks.length === 0) {
+    // Find version groups
+    const groupMap = new Map<string, StoredDocument[]>();
+    for (const d of docs) {
+      const gid = (d as any).versionGroupId || (d as any).version_group_id || null;
+      if (!gid) continue;
+      if (!groupMap.has(gid)) groupMap.set(gid, []);
+      groupMap.get(gid)!.push(d);
+    }
+    const versionGroups = Array.from(groupMap.values()).filter(arr => arr.length > 1);
+
+    if (docsWithLinks.length === 0 && versionGroups.length === 0) {
       return {
         id: String(Date.now() + 1),
         role: 'assistant',
-        content: `I found ${docs.length} documents in your collection, but none of them currently have linked documents. 
-
-Documents can be linked during upload when they're detected as different versions of the same document, or when they reference each other. You can also manually link documents through the document detail page.
-
-Would you like me to help you find documents that might be related to each other?`
+        content: `I scanned ${docs.length} documents and did not find linked pairs or version groups yet. You can link related docs on their detail pages; versions are linked automatically when uploaded as versions.`
       };
     }
 
-    // Build a comprehensive answer showing all linked document relationships
+    // Build a comprehensive answer showing linked pairs and version groups
     const linkPairs: { source: StoredDocument; targets: StoredDocument[] }[] = [];
     
     for (const doc of docsWithLinks) {
-      const linkIds = (doc.linkedDocumentIds || []).filter(Boolean);
-      const linkedDocs = linkIds
-        .map(id => docs.find(d => d.id === id))
-        .filter(Boolean) as StoredDocument[];
-      
-      if (linkedDocs.length > 0) {
-        linkPairs.push({ source: doc, targets: linkedDocs });
+        const targets = (doc.linkedDocumentIds || []).map(id => docs.find(d => d.id === id)).filter(Boolean) as StoredDocument[];
+        if (targets.length > 0) {
+          linkPairs.push({ source: doc, targets });
+        }
       }
-    }
 
-    if (linkPairs.length === 0) {
-      return {
-        id: String(Date.now() + 1),
-        role: 'assistant',
-        content: "I found some documents marked as having links, but couldn't retrieve the linked documents. This might be due to data inconsistency."
+      let content = `I found **${docsWithLinks.length} documents with links** and **${versionGroups.length} version groups**.\n\n`;
+      
+    if (versionGroups.length > 0) {
+        content += `**Version Groups:**\n`;
+        for (const group of versionGroups.slice(0, 3)) {
+          const names = group.map(d => `${d.title || d.name}${d.isCurrentVersion ? ' (current)' : ''}`);
+          content += `• ${names.join(' → ')}\n`;
+        }
+        if (versionGroups.length > 3) {
+          content += `• ... and ${versionGroups.length - 3} more groups\n`;
+        }
+      }
+
+      // Return a special message structure for linked documents
+      return { 
+        id: String(Date.now() + 1), 
+        role: 'assistant', 
+        content,
+        linkedDocuments: linkPairs.flatMap(pair => [pair.source, ...pair.targets]).filter((doc, index, arr) => 
+          arr.findIndex(d => d.id === doc.id) === index
+        ) // Remove duplicates
       };
-    }
-
-    let content = `📎 **Your Linked Documents** (${linkPairs.length} document${linkPairs.length > 1 ? 's' : ''} with links):\n\n`;
-    
-    for (const { source, targets } of linkPairs) {
-      content += `**${source.title || source.name}**\n`;
-      if (source.documentType) content += `   *${source.documentType}*\n`;
-      content += `   ↳ Linked to:\n`;
-      
-      for (const target of targets) {
-        content += `      • ${target.title || target.name}`;
-        if (target.versionNumber) content += ` (v${target.versionNumber})`;
-        if (target.documentDate) content += ` · ${target.documentDate}`;
-        content += `\n`;
-      }
-      content += `\n`;
-    }
-
-    content += `\n💡 *Tip: Use "/linked" to filter documents, or ask about specific documents to see their relationships.*`;
-
-    return { id: String(Date.now() + 1), role: 'assistant', content };
   }
 
   // Original behavior for context-specific linked doc queries
@@ -744,18 +1196,50 @@ Would you like me to help you find documents that might be related to each other
   if (!focusId) return null;
   const focus = docs.find(d => d.id === focusId);
   if (!focus) return null;
+  // Try backend relationships API first (includes versions + incoming/outgoing)
+  try {
+    const { orgId } = getApiContext();
+    if (orgId) {
+      const rel = await apiFetch<any>(`/orgs/${orgId}/documents/${focus.id}/relationships`);
+      const linesApi: string[] = [];
+      if (Array.isArray(rel.versions) && rel.versions.length > 0) {
+        linesApi.push('🔁 Versions:');
+        for (const v of rel.versions) linesApi.push(`• v${v.versionNumber}${v.isCurrentVersion ? '*' : ''} — ${v.title || 'Untitled'}`);
+      }
+      if (Array.isArray(rel.outgoing) && rel.outgoing.length > 0) {
+        linesApi.push('📎 Links from this document:');
+        for (const l of rel.outgoing) linesApi.push(`• ${l.title}${l.linkType ? ` (${l.linkType})` : ''}`);
+      }
+      if (Array.isArray(rel.incoming) && rel.incoming.length > 0) {
+        linesApi.push('📎 Links to this document:');
+        for (const l of rel.incoming) linesApi.push(`• ${l.title}${l.linkType ? ` (${l.linkType})` : ''}`);
+      }
+      if (linesApi.length > 0) {
+        const content = `Relationships for "${focus.title || focus.name}":\n` + linesApi.join('\n');
+        return { id: String(Date.now()+1), role: 'assistant', content };
+      }
+    }
+  } catch {}
+
   const linkIds = (focus.linkedDocumentIds || []).filter(Boolean);
-  if (linkIds.length === 0) return null;
-  const linked = linkIds
-    .map(id => docs.find(d => d.id === id))
-    .filter(Boolean) as StoredDocument[];
-  if (linked.length === 0) return null;
-  const lines = linked.map(d => `• ${d.title || d.name}${d.documentDate ? ` · ${d.documentDate}` : ''}`);
-  const content = `Linked documents for "${focus.title || focus.name}":\n` + lines.join('\n');
+  const linked = linkIds.map(id => docs.find(d => d.id === id)).filter(Boolean) as StoredDocument[];
+  const versions = docs.filter(d => ((d as any).versionGroupId || (d as any).version_group_id) && ((d as any).versionGroupId || (d as any).version_group_id) === ((focus as any).versionGroupId || (focus as any).version_group_id) && d.id !== focus.id);
+  if (linked.length === 0 && versions.length === 0) return null;
+  const lines: string[] = [];
+  if (versions.length > 0) {
+    const sorted = versions.slice().sort((a,b) => (a.versionNumber || 0) - (b.versionNumber || 0));
+    lines.push('🔁 Versions:');
+    for (const v of sorted) lines.push(`• v${v.versionNumber || 1}${v.isCurrentVersion ? '*' : ''} — ${v.title || v.name}`);
+  }
+  if (linked.length > 0) {
+    lines.push('📎 Linked documents:');
+    for (const d of linked) lines.push(`• ${d.title || d.name}${d.documentDate ? ` · ${d.documentDate}` : ''}`);
+  }
+  const content = `Relationships for "${focus.title || focus.name}":\n` + lines.join('\n');
   return { id: String(Date.now()+1), role: 'assistant', content };
 }
 
-function inferFocusDocIds(history: Message[], docOverride?: string): string[] {
+function inferFocusDocIds(history: ChatMessage[], docOverride?: string): string[] {
   // Look at the last user message for references like "first", "this", "that", "it"
   const lastUser = [...history].reverse().find(m => m.role === 'user');
   if (!lastUser) return [];
@@ -771,7 +1255,7 @@ function inferFocusDocIds(history: Message[], docOverride?: string): string[] {
   return [];
 }
 
-function extractLastCitedDocIds(history: Message[]): string[] {
+function extractLastCitedDocIds(history: ChatMessage[]): string[] {
   const lastAssistant = [...history].reverse().find(m => m.role === 'assistant' && m.citations && m.citations.length > 0);
   if (!lastAssistant || !lastAssistant.citations) return [];
   const ids = lastAssistant.citations.map(c => c.docId!).filter(Boolean) as string[];
@@ -790,7 +1274,7 @@ function identifyExplicitDocMention(input: string, docs: StoredDocument[]): stri
 }
 
 async function streamUpdateMessage(
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   id: string,
   text: string
 ) {
@@ -806,3 +1290,138 @@ function chunkText(s: string, size: number) {
   for (let i = 0; i < s.length; i += size) arr.push(s.slice(i, i + size));
   return arr;
 }
+
+async function buildPreviewAnswer(input: string, history: ChatMessage[], docs: StoredDocument[], semanticSnippets?: Map<string, string[]>): Promise<ChatMessage | null> {
+  const text = input.toLowerCase();
+  
+  // Check if this is a preview query
+  const isPreviewQuery = /(first line|first sentence|first paragraph|show content|preview|content|lines|text|quote|exact)/i.test(text);
+  if (!isPreviewQuery) return null;
+
+  // Check if user is asking about a specific document
+  const focusIds = inferFocusDocIds(history);
+  const focusId = focusIds[0];
+  
+  if (!focusId) {
+    // General preview query without specific document
+    return {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: 'I can show you document content. Please ask about a specific document or use commands like "/preview <docId>" to see content.',
+      preview: undefined
+    };
+  }
+
+  const focus = docs.find(d => d.id === focusId);
+  if (!focus) return null;
+
+  // Check if document has content - try multiple content fields
+  let documentContent = focus.content || focus.summary || (focus as any).ocrText || (focus as any).extractedText;
+  
+  // If no content in document, try to get it from semantic search results
+  if (!documentContent) {
+    // Try to get content from the current semantic search results
+    const currentSemanticSnippets = semanticSnippets?.get(focus.id);
+    if (currentSemanticSnippets && currentSemanticSnippets.length > 0) {
+      documentContent = currentSemanticSnippets.join('\n');
+    }
+  }
+  
+  if (!documentContent) {
+    return {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: `I don't have content for "${focus.title || focus.name}". The document may not have been processed for content extraction yet.`,
+      preview: undefined
+    };
+  }
+
+  // Extract content lines
+  const contentLines = documentContent
+    .split('\n')
+    .map((line: string) => line.trim())
+    .filter((line: string) => line.length > 0)
+    .slice(0, 10); // Get first 10 non-empty lines
+
+  if (contentLines.length === 0) {
+    return {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: `The document "${focus.title || focus.name}" appears to be empty or contains no readable content.`,
+      preview: undefined
+    };
+  }
+
+  return {
+    id: String(Date.now() + 1),
+    role: 'assistant',
+    content: `Here's the content from "${focus.title || focus.name}":`,
+    preview: {
+      docId: focus.id,
+      docName: focus.title || focus.name,
+      lines: contentLines,
+      title: focus.title || focus.name,
+      url: `/documents/${focus.id}`
+    }
+  };
+}
+
+async function buildMetadataAnswer(input: string, history: ChatMessage[], docs: StoredDocument[]): Promise<ChatMessage | null> {
+  const text = input.toLowerCase();
+  
+  // Check if this is a metadata query
+  const isMetadataQuery = /(sender|receiver|subject|filename|name|date|reference|type|category|metadata|details|header|info)/i.test(text);
+  if (!isMetadataQuery) return null;
+
+  // Check if user is asking about a specific document
+  const focusIds = inferFocusDocIds(history);
+  const focusId = focusIds[0];
+  
+  if (!focusId) {
+    // General metadata query without specific document
+    return {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: 'I can show you metadata for documents. Please ask about a specific document or use commands like "/sender <name>" to filter by sender.',
+      metadata: undefined
+    };
+  }
+
+  const focus = docs.find(d => d.id === focusId);
+  if (!focus) return null;
+
+  // Extract available metadata
+  const metadata = {
+    subject: focus.subject,
+    name: focus.name,
+    sender: focus.sender,
+    receiver: focus.receiver,
+    date: focus.documentDate,
+    reference: (focus as any).referenceNo,
+    documentType: focus.documentType || focus.type,
+    category: focus.category,
+    filename: focus.filename
+  };
+
+  // Check if any metadata exists
+  const hasMetadata = Object.values(metadata).some(v => v);
+  if (!hasMetadata) {
+    return {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: `I don't have detailed metadata for "${focus.title || focus.name}". The document may not have been processed for metadata extraction yet.`,
+      metadata: undefined
+    };
+  }
+
+  return {
+    id: String(Date.now() + 1),
+    role: 'assistant',
+    content: `Here are the document details for "${focus.title || focus.name}":`,
+    metadata
+  };
+}
+
+
+
+// suggestions intentionally removed (minimal headerless chat)

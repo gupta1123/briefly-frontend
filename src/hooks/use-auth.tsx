@@ -5,7 +5,7 @@ import { setApiContext } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
-export type Role = 'systemAdmin' | 'contentManager' | 'contentViewer' | 'guest';
+export type Role = 'systemAdmin' | 'teamLead' | 'member' | 'contentManager' | 'contentViewer' | 'guest';
 
 type AuthUser = {
   username: string;
@@ -33,66 +33,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [lastLoginLoggedAt, setLastLoginLoggedAt] = useState<number>(0);
   const router = useRouter();
 
-  // On initial mount, restore session → set user
+  // Consolidated auth initialization - single API call
   useEffect(() => {
+    let mounted = true;
+    
     (async () => {
       try {
         const { data: sess } = await supabase.auth.getSession();
         const token = sess.session?.access_token;
-        if (!token) { setIsLoading(false); return; }
+        
+        if (!token) { 
+          if (mounted) setIsLoading(false); 
+          return; 
+        }
+        
         const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
         const res = await fetch(`${base}/me`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) { setIsLoading(false); return; }
+        
+        if (!res.ok) { 
+          if (mounted) setIsLoading(false); 
+          return; 
+        }
+        
         const me = await res.json();
+        if (!mounted) return; // Component unmounted
+        
         const now = Date.now();
         const orgs = Array.isArray(me.orgs) ? me.orgs : [];
         const activeOrgs = orgs.filter((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now);
         const firstActiveOrg = activeOrgs[0]?.orgId || '';
+        
+        // Set both user and org context in one go
         setApiContext({ orgId: firstActiveOrg });
+        
         if (!firstActiveOrg) {
           try { router.push('/no-access'); } catch {}
+          return;
         }
-        const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, contentManager: 2, orgAdmin: 3 };
-        const best = (activeOrgs || []).reduce((acc: any, r: any) => (roleOrder[r.role] > roleOrder[acc.role] ? r : acc), { role: 'guest' });
-        const mapped: Role = best.role === 'orgAdmin' ? 'systemAdmin' : (best.role as Role);
-        const selectedOrg = (activeOrgs || []).find((o: any) => o.orgId === firstActiveOrg) || best;
+        
+        const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, member: 2, contentManager: 2, teamLead: 3, orgAdmin: 4 };
+        const best = activeOrgs.reduce((acc: any, r: any) => (roleOrder[r.role] > roleOrder[acc.role] ? r : acc), { role: 'guest' });
+        const mapped: Role = best.role === 'orgAdmin'
+          ? 'systemAdmin'
+          : best.role === 'teamLead'
+            ? 'teamLead'
+            : (best.role === 'contentManager' || best.role === 'contentViewer')
+              ? 'member'
+              : (best.role as Role);
+        const selectedOrg = activeOrgs.find((o: any) => o.orgId === firstActiveOrg) || best;
         const email = sess.session?.user?.email || sess.session?.user?.id || '';
-        setUser({ username: email, email, role: mapped, expiresAt: selectedOrg?.expiresAt || undefined });
-      } catch {
-        // ignore
+        
+        setUser({ 
+          username: email, 
+          email, 
+          role: mapped, 
+          expiresAt: selectedOrg?.expiresAt || undefined 
+        });
+        
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
       } finally {
-        setIsLoading(false);
+        if (mounted) setIsLoading(false);
       }
     })();
-  }, []);
-
-  // On mount or when user changes, re-resolve org context from backend using persisted Supabase session
-  useEffect(() => {
-    (async () => {
-      if (!user) {
-        setApiContext({ orgId: '' });
-        return;
-      }
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const token = sess.session?.access_token;
-        if (!token) return;
-        const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
-        const res = await fetch(`${base}/me`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) return;
-        const me = await res.json();
-        const now = Date.now();
-        const orgs = Array.isArray(me.orgs) ? me.orgs : [];
-        const firstActiveOrg = orgs.find((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now)?.orgId || '';
-        setApiContext({ orgId: firstActiveOrg });
-        if (!firstActiveOrg) {
-          try { router.push('/no-access'); } catch {}
-        }
-      } catch {
-        // ignore; UI will remain gated until a successful API call
-      }
-    })();
-  }, [user]);
+    
+    return () => { mounted = false; };
+  }, [router]);
 
   // Remove localStorage persistence; rely on Supabase session + /me
 
@@ -142,10 +148,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       // Map highest org role to app role
-      const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, contentManager: 2, orgAdmin: 3 };
+      const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, member: 2, contentManager: 2, teamLead: 3, orgAdmin: 4 };
       const activeOrgs = orgs.filter((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now);
       const best = (activeOrgs || []).reduce((acc: any, r: any) => (roleOrder[r.role] > roleOrder[acc.role] ? r : acc), { role: 'guest' });
-      const mapped: Role = best.role === 'orgAdmin' ? 'systemAdmin' : (best.role as Role);
+      // Map backend role keys to UI roles
+      const mapped: Role = best.role === 'orgAdmin'
+        ? 'systemAdmin'
+        : best.role === 'teamLead'
+          ? 'teamLead'
+          : (best.role === 'contentManager' || best.role === 'contentViewer')
+            ? 'member'
+            : (best.role as Role);
       const selectedOrg = (activeOrgs || []).find((o: any) => o.orgId === firstActiveOrg) || best;
       const signedInUser: AuthUser = { username: data.user.email || data.user.id, email: data.user.email || data.user.id, role: mapped, expiresAt: selectedOrg?.expiresAt || undefined };
       setUser(signedInUser);
@@ -189,65 +202,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasRoleAtLeast = useCallback((role: Role) => {
     if (!user) return false;
-    const order: Role[] = ['guest', 'contentViewer', 'contentManager', 'systemAdmin'];
+    const order: Role[] = ['guest', 'contentViewer', 'member', 'contentManager', 'teamLead', 'systemAdmin'];
     return order.indexOf(user.role) >= order.indexOf(role);
   }, [user]);
 
   // Auto-logout when guest expiry passes (client-side safeguard; server should also enforce)
+  // Optimized expiration check - only check when needed
   useEffect(() => {
     if (!user?.expiresAt) return;
+    
     const end = new Date(user.expiresAt).getTime();
     const now = Date.now();
-    if (now >= end) {
-      (async () => {
-        try {
-          const { data: sess } = await supabase.auth.getSession();
-          const token = sess.session?.access_token;
-          if (!token) { signOut(); return; }
-          const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
-          const res = await fetch(`${base}/me`, { headers: { Authorization: `Bearer ${token}` } });
-          if (!res.ok) { signOut(); return; }
-          const me = await res.json();
-          const now2 = Date.now();
-          const orgs = Array.isArray(me.orgs) ? me.orgs : [];
-          const nextActive = orgs.find((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now2);
-          if (nextActive) {
-            setApiContext({ orgId: nextActive.orgId });
-            setUser(prev => prev ? { ...prev, expiresAt: nextActive.expiresAt || undefined } : prev);
-            return;
-          }
-          signOut();
-        } catch {
-          signOut();
-        }
-      })();
+    
+    // If already expired, sign out immediately
+    if (end <= now) {
+      signOut();
       return;
     }
-    const id = setTimeout(() => {
-      (async () => {
-        try {
-          const { data: sess } = await supabase.auth.getSession();
-          const token = sess.session?.access_token;
-          if (!token) { signOut(); return; }
-          const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
-          const res = await fetch(`${base}/me`, { headers: { Authorization: `Bearer ${token}` } });
-          if (!res.ok) { signOut(); return; }
-          const me = await res.json();
-          const now2 = Date.now();
-          const orgs = Array.isArray(me.orgs) ? me.orgs : [];
-          const nextActive = orgs.find((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now2);
-          if (nextActive) {
-            setApiContext({ orgId: nextActive.orgId });
-            setUser(prev => prev ? { ...prev, expiresAt: nextActive.expiresAt || undefined } : prev);
-            return;
-          }
-          signOut();
-        } catch {
-          signOut();
-        }
-      })();
+    
+    // Set timer for actual expiration
+    const timeoutId = setTimeout(() => {
+      signOut();
     }, end - now + 1000);
-    return () => clearTimeout(id);
+    
+    return () => clearTimeout(timeoutId);
   }, [user?.expiresAt, signOut]);
 
   const value = useMemo<AuthContextValue>(() => ({ isAuthenticated: !!user, user, signIn, signOut, isLoading, hasRoleAtLeast }), [user, signIn, signOut, isLoading, hasRoleAtLeast]);
@@ -260,5 +238,3 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
   return ctx;
 }
-
-
