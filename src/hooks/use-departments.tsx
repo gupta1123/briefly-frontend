@@ -27,17 +27,56 @@ export function DepartmentsProvider({ children }: { children: React.ReactNode })
     setLoading(true);
     try {
       const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments`);
+      console.log('Departments loaded:', list?.map(d => ({ id: d.id, name: d.name })));
       setDepartments(list || []);
-      // Initialize selection from localStorage or first department
+      
+      // Initialize selection from localStorage or user's department
       const saved = typeof window !== 'undefined' ? window.localStorage.getItem(LS_KEY) : null;
+      
+      // Only auto-select if no department is currently selected
       if (!selectedDepartmentId) {
-        if (saved && (list || []).some(d => d.id === saved)) setSelectedDepartmentId(saved);
-        else if ((list || []).length) setSelectedDepartmentId(list[0].id);
+        if (saved && (list || []).some(d => d.id === saved)) {
+          console.log('Using saved department selection:', saved);
+          setSelectedDepartmentId(saved);
+        } else {
+          // Try to determine user's primary department from their memberships
+          try {
+            const userDepts = await apiFetch<{department_id: string, role: string}[]>(`/orgs/${orgId}/user/departments`);
+            console.log('User departments:', userDepts);
+            if (userDepts && userDepts.length > 0) {
+              // Prefer department where user is a lead, then first membership
+              const leadDept = userDepts.find(d => d.role === 'lead');
+              const primaryDeptId = leadDept ? leadDept.department_id : userDepts[0].department_id;
+              console.log('Selected primary department:', primaryDeptId);
+              
+              // Verify this department exists in the list
+              if ((list || []).some(d => d.id === primaryDeptId)) {
+                setSelectedDepartmentId(primaryDeptId);
+              } else if ((list || []).length) {
+                console.log('Primary department not found, using first available');
+                setSelectedDepartmentId(list[0].id);
+              }
+            } else if ((list || []).length) {
+              console.log('No user departments, using first available');
+              setSelectedDepartmentId(list[0].id);
+            }
+          } catch (error) {
+            console.warn('Failed to fetch user departments:', error);
+            // Fallback to first department if user departments query fails
+            if ((list || []).length) setSelectedDepartmentId(list[0].id);
+          }
+        }
+      } else {
+        // Validate existing selection is still valid
+        if (selectedDepartmentId && !(list || []).some(d => d.id === selectedDepartmentId)) {
+          console.warn('Selected department no longer exists, resetting selection');
+          setSelectedDepartmentId(null);
+        }
       }
     } finally {
       setLoading(false);
     }
-  }, [selectedDepartmentId]);
+  }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => onApiContextChange(() => { setTimeout(() => void refresh(), 100); }), [refresh]);

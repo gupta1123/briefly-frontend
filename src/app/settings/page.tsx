@@ -185,15 +185,7 @@ export default function SettingsPage() {
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">Affects how dates are shown across the app. Sample: <span className="font-mono">{formatAppDateTime(new Date())}</span></p>
               </div>
-              <div className="lg:col-span-1">
-                <label className="text-sm mb-2 block">Preview</label>
-                <div className="rounded-md border p-4 space-y-3">
-                  <div className="flex items-center gap-2"><Button size="sm">Primary</Button><Button size="sm" variant="outline">Outline</Button></div>
-                  <Input placeholder="Sample input" />
-                  <div className="flex items-center gap-2"><Switch checked /><span className="text-xs text-muted-foreground">Switch</span></div>
-                  <div className="flex items-center gap-2"><Badge>Badge</Badge><Badge variant="outline">Outline</Badge></div>
-                </div>
-              </div>
+              {/* Preview section removed per requirement */}
             </div>
           </CardContent>
         </Card>
@@ -296,4 +288,3 @@ export default function SettingsPage() {
     </AppLayout>
   );
 }
-

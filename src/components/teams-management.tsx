@@ -52,6 +52,7 @@ const TEAM_COLORS = [
 export default function TeamsManagement() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'systemAdmin';
+  const isTeamLead = user?.role === 'teamLead';
   const [departments, setDepartments] = React.useState<Department[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
@@ -75,6 +76,7 @@ export default function TeamsManagement() {
   const [inviteRole, setInviteRole] = React.useState<'member'|'guest'>('member');
   const [invitePassword, setInvitePassword] = React.useState('');
   const [inviting, setInviting] = React.useState(false);
+  const [operationInProgress, setOperationInProgress] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   const refresh = React.useCallback(async () => {
@@ -82,26 +84,9 @@ export default function TeamsManagement() {
     if (!orgId) return;
     setLoading(true);
     try {
-      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments`);
-      // Get member count for each department
-      const departmentsWithCounts = await Promise.all(
-        (list || []).map(async (dept) => {
-          try {
-            const members = await apiFetch<any[]>(`/orgs/${orgId}/departments/${dept.id}/users`);
-            return { ...dept, member_count: members?.length || 0 };
-          } catch {
-            return { ...dept, member_count: 0 };
-          }
-        })
-      );
-      setDepartments(departmentsWithCounts);
-      
-      const users = await apiFetch<any[]>(`/orgs/${orgId}/users`);
-      setOrgUsers((users || []).map(u => ({ 
-        userId: u.userId, 
-        displayName: u.displayName || u.app_users?.display_name || '', 
-        email: u.email || '' 
-      })));
+      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?withCounts=1`);
+      setDepartments(list || []);
+      // Defer users fetch to reduce initial load; fetch on demand when user picker opens
     } finally { 
       setLoading(false); 
     }
@@ -137,94 +122,164 @@ export default function TeamsManagement() {
 
   const onCreate = async () => {
     const orgId = getApiContext().orgId || '';
-    if (!newName.trim()) return;
-    
+    if (!newName.trim() || operationInProgress) return;
+
+    const teamName = newName.trim();
+    const teamColor = newColor;
+    setOperationInProgress('create');
+
+    // Optimistic update
+    const tempId = `temp-${Date.now()}`;
+    const optimisticDepartment = {
+      id: tempId,
+      org_id: orgId,
+      name: teamName,
+      color: teamColor,
+      member_count: 0
+    };
+
+    setDepartments(prev => [...prev, optimisticDepartment]);
+    setNewName('');
+    setCreating(false);
+
     try {
-      await apiFetch(`/orgs/${orgId}/departments`, { 
-        method: 'POST', 
-        body: { 
-          name: newName.trim(),
-          color: newColor 
-        } 
+      const response = await apiFetch(`/orgs/${orgId}/departments`, {
+        method: 'POST',
+        body: {
+          name: teamName,
+          color: teamColor
+        }
       });
-      setNewName('');
-      setCreating(false);
-      await refresh(); // Refresh to sync with server state
+
+      // Replace optimistic update with real data
+      setDepartments(prev => prev.map(d =>
+        d.id === tempId ? { ...response, member_count: 0 } : d
+      ));
+
       toast({
         title: 'Team created',
-        description: `Team "${newName.trim()}" has been created successfully.`,
+        description: `Team "${teamName}" has been created successfully.`,
       });
     } catch (error: any) {
+      // Rollback optimistic update
+      setDepartments(prev => prev.filter(d => d.id !== tempId));
+      setNewName(teamName);
+      setNewColor(teamColor);
+      setCreating(true);
+
       toast({
         title: 'Error creating team',
         description: error.message || 'Failed to create team. Please try again.',
         variant: 'destructive' as any,
       });
+    } finally {
+      setOperationInProgress(null);
     }
   };
 
   const onRename = async (dept: Department, name: string) => {
     const orgId = getApiContext().orgId || '';
+    if (operationInProgress) return;
+    
+    const originalName = dept.name;
+    setOperationInProgress(`rename-${dept.id}`);
+
+    // Optimistic update
+    setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name } : d));
+    setEditing(null);
+
     try {
-      await apiFetch(`/orgs/${orgId}/departments/${dept.id}`, { 
-        method: 'PATCH', 
-        body: { name } 
+      await apiFetch(`/orgs/${orgId}/departments/${dept.id}`, {
+        method: 'PATCH',
+        body: { name }
       });
-      setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name } : d));
-      setEditing(null);
-      await refresh(); // Refresh to sync with server state
-      // Reload members if this team is currently selected
-      if (selected === dept.id) {
-        void loadMembers(selected);
-      }
+
       toast({
         title: 'Team updated',
         description: `Team name has been updated to "${name}".`,
       });
     } catch (error: any) {
+      // Rollback optimistic update
+      setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name: originalName } : d));
+      setEditing(dept.id);
+      setEditName(originalName);
+
       toast({
         title: 'Error updating team',
         description: error.message || 'Failed to update team. Please try again.',
         variant: 'destructive' as any,
       });
+    } finally {
+      setOperationInProgress(null);
     }
   };
 
   const onUpdate = async (dept: Department, name: string, color: string) => {
     const orgId = getApiContext().orgId || '';
+    if (operationInProgress) return;
+    
+    const originalName = dept.name;
+    const originalColor = dept.color;
+    setOperationInProgress(`update-${dept.id}`);
+
+    // Optimistic update
+    setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name, color } : d));
+    setEditing(null);
+
     try {
       await apiFetch(`/orgs/${orgId}/departments/${dept.id}`, { method: 'PATCH', body: { name, color } });
-      setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name, color } : d));
-      setEditing(null);
-      await refresh(); // Refresh to sync with server state
-      // Reload members if this team is currently selected
-      if (selected === dept.id) {
-        void loadMembers(selected);
-      }
+
       toast({ title: 'Team updated', description: 'Team details have been updated.' });
     } catch (error: any) {
+      // Rollback optimistic update
+      setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, name: originalName, color: originalColor } : d));
+      setEditing(dept.id);
+      setEditName(originalName);
+      setEditColor(originalColor || 'purple');
+
       toast({ title: 'Error updating team', description: error.message || 'Failed to update team.', variant: 'destructive' as any });
+    } finally {
+      setOperationInProgress(null);
     }
   };
 
   const onDelete = async (dept: Department) => {
     const orgId = getApiContext().orgId || '';
+    if (operationInProgress) return;
+
+    // Store original state for rollback
+    const originalDepartments = [...departments];
+    const wasSelected = selected === dept.id;
+    setOperationInProgress(`delete-${dept.id}`);
+
+    // Optimistic update
+    setDepartments(prev => prev.filter(d => d.id !== dept.id));
+    if (wasSelected) {
+      setSelected(null);
+      setAddUserMode(null);
+    }
+
     try {
       await apiFetch(`/orgs/${orgId}/departments/${dept.id}`, { method: 'DELETE' });
-      setDepartments(prev => prev.filter(d => d.id !== dept.id));
-      setSelected(null); // Clear selected team if it was deleted
-      setAddUserMode(null); // Reset add user mode
-      await refresh(); // Refresh to sync with server state
+
       toast({
         title: 'Team deleted',
         description: `Team "${dept.name}" has been deleted.`,
       });
     } catch (error: any) {
+      // Rollback optimistic update
+      setDepartments(originalDepartments);
+      if (wasSelected) {
+        setSelected(dept.id);
+      }
+
       toast({
         title: 'Error deleting team',
         description: error.message || 'Failed to delete team. Please try again.',
         variant: 'destructive' as any,
       });
+    } finally {
+      setOperationInProgress(null);
     }
   };
 
@@ -300,8 +355,8 @@ export default function TeamsManagement() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button onClick={onCreate} disabled={!newName.trim()}>
-                Create Team
+              <Button onClick={onCreate} disabled={!newName.trim() || operationInProgress === 'create'}>
+                {operationInProgress === 'create' ? 'Creating...' : 'Create Team'}
               </Button>
               <Button variant="outline" onClick={() => setCreating(false)}>
                 Cancel
@@ -354,6 +409,7 @@ export default function TeamsManagement() {
                           size="sm"
                           variant="ghost"
                           onClick={() => startEdit(dept)}
+                          disabled={operationInProgress !== null}
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
@@ -373,7 +429,12 @@ export default function TeamsManagement() {
                       {isAdmin && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700">
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="text-red-600 hover:text-red-700"
+                              disabled={operationInProgress !== null}
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -424,37 +485,55 @@ export default function TeamsManagement() {
             {!addUserMode && (
               <div className="space-y-3">
                 <h4 className="text-sm font-medium text-muted-foreground">Add Team Member</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setAddUserMode('existing')}
-                    className="h-auto p-4 flex flex-col items-center gap-2"
-                  >
-                    <Users className="w-6 h-6" />
-                    <div className="text-center">
-                      <div className="font-medium">Add Existing User</div>
-                      <div className="text-xs text-muted-foreground">Select from organization members</div>
-                    </div>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setAddUserMode('invite')}
-                    className="h-auto p-4 flex flex-col items-center gap-2"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                    </svg>
-                    <div className="text-center">
-                      <div className="font-medium">Invite New User</div>
-                      <div className="text-xs text-muted-foreground">Send invitation via email</div>
-                    </div>
-                  </Button>
-                </div>
+                {isAdmin ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => setAddUserMode('existing')}
+                      className="h-auto p-4 flex flex-col items-center gap-2"
+                    >
+                      <Users className="w-6 h-6" />
+                      <div className="text-center">
+                        <div className="font-medium">Add Existing User</div>
+                        <div className="text-xs text-muted-foreground">Select from organization members</div>
+                      </div>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setAddUserMode('invite')}
+                      className="h-auto p-4 flex flex-col items-center gap-2"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                      </svg>
+                      <div className="text-center">
+                        <div className="font-medium">Invite New User</div>
+                        <div className="text-xs text-muted-foreground">Send invitation via email</div>
+                      </div>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => setAddUserMode('invite')}
+                      className="h-auto p-4 flex flex-col items-center gap-2 min-w-[200px]"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                      </svg>
+                      <div className="text-center">
+                        <div className="font-medium">Invite New User</div>
+                        <div className="text-xs text-muted-foreground">Send invitation via email</div>
+                      </div>
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Existing User Selection */}
-            {addUserMode === 'existing' && (
+            {/* Existing User Selection - Admin Only */}
+            {addUserMode === 'existing' && isAdmin && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-medium">Add Existing User</h4>
@@ -477,7 +556,16 @@ export default function TeamsManagement() {
                 value={userQuery} 
                 onChange={(e)=>setUserQuery(e.target.value)} 
               />
-              <Select value={pendingAddUserId} onValueChange={setPendingAddUserId}>
+              <Select value={pendingAddUserId} onValueChange={setPendingAddUserId} onOpenChange={async (open:boolean)=>{
+                if (open && orgUsers.length === 0) {
+                  try {
+                    const orgId = getApiContext().orgId || '';
+                    if (!orgId) return;
+                    const users = await apiFetch<any[]>(`/orgs/${orgId}/users`);
+                    setOrgUsers((users || []).map(u => ({ userId: u.userId, displayName: u.displayName || u.app_users?.display_name || '', email: u.email || '' })));
+                  } catch {}
+                }
+              }}>
                 <SelectTrigger className="w-52"><SelectValue placeholder="Select user" /></SelectTrigger>
                 <SelectContent>
                   {orgUsers
@@ -491,32 +579,90 @@ export default function TeamsManagement() {
                     ))}
                 </SelectContent>
               </Select>
-              <Select value={pendingAddRole} onValueChange={(value: 'lead'|'member') => setPendingAddRole(value)}>
+              <Select value={pendingAddRole} onValueChange={(value: 'lead'|'member') => {
+                // Check if trying to select team lead when one already exists
+                if (value === 'lead') {
+                  const existingLead = members.find(member => member.role === 'lead');
+                  if (existingLead) {
+                    toast({
+                      title: 'Cannot assign team lead',
+                      description: `${existingLead.displayName || existingLead.email} is already the team lead. A team can only have one lead.`,
+                      variant: 'destructive'
+                    });
+                    return;
+                  }
+                }
+                setPendingAddRole(value);
+              }}>
                 <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="member">Member</SelectItem>
-                  {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
+                  {isAdmin && (
+                    <SelectItem 
+                      value="lead" 
+                      disabled={members.some(member => member.role === 'lead')}
+                    >
+                      Team Lead {members.some(member => member.role === 'lead') ? '(Already assigned)' : ''}
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
               <Button onClick={async ()=>{
-                if (!pendingAddUserId) return;
+                if (!pendingAddUserId || operationInProgress) return;
+                
+                // Check if trying to add as team lead when one already exists
+                if (pendingAddRole === 'lead') {
+                  const existingLead = members.find(member => member.role === 'lead');
+                  if (existingLead) {
+                    toast({
+                      title: 'Cannot assign team lead',
+                      description: `${existingLead.displayName || existingLead.email} is already the team lead. A team can only have one lead.`,
+                      variant: 'destructive'
+                    });
+                    return;
+                  }
+                }
+                
                 const orgId = getApiContext().orgId || '';
+                const added = orgUsers.find(u => u.userId === pendingAddUserId);
+                setOperationInProgress(`add-user-${pendingAddUserId}`);
+
+                // Store original state for rollback
+                const originalMembers = [...members];
+                const originalMemberCount = departments.find(d => d.id === selected)?.member_count || 0;
+
+                // Optimistic update
+                if (added) {
+                  setMembers(prev => prev.some(m => m.userId === added.userId) ? prev : prev.concat([{ userId: added.userId, role: pendingAddRole, displayName: added.displayName, email: added.email }]));
+                  setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: (d.member_count || 0) + 1 } : d));
+                }
+                setPendingAddUserId('');
+                setUserQuery('');
+                setAddUserMode(null);
+
                 try {
                   await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId: pendingAddUserId, role: pendingAddRole } });
-                  // Optimistic update
-                  const added = orgUsers.find(u => u.userId === pendingAddUserId);
-                  if (added) {
-                    setMembers(prev => prev.some(m => m.userId === added.userId) ? prev : prev.concat([{ userId: added.userId, role: pendingAddRole, displayName: added.displayName, email: added.email }]));
-                    setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: (d.member_count || 0) + 1 } : d));
-                  }
-                  setPendingAddUserId('');
-                  setUserQuery('');
-                      setAddUserMode(null);
-                  // Ensure eventual consistency
-                  void loadMembers(selected!);
+
+                  // Trigger org users changed event for other components
                   try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
-                } catch {}
-              }}>Add</Button>
+                } catch (error: any) {
+                  // Rollback optimistic update
+                  setMembers(originalMembers);
+                  setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: originalMemberCount } : d));
+                  setPendingAddUserId(pendingAddUserId);
+                  setAddUserMode('existing');
+
+                  toast({
+                    title: 'Error adding member',
+                    description: error.message || 'Failed to add team member. Please try again.',
+                    variant: 'destructive' as any,
+                  });
+                } finally {
+                  setOperationInProgress(null);
+                }
+              }} disabled={operationInProgress?.startsWith('add-user')}>{
+                operationInProgress?.startsWith('add-user') ? 'Adding...' : 'Add'
+              }</Button>
             </div>
               </div>
             )}
@@ -567,8 +713,9 @@ export default function TeamsManagement() {
                 <Button 
                   onClick={async ()=>{
                     const orgId = getApiContext().orgId || '';
-                    if (!orgId || !inviteEmail.trim() || !selected) return;
+                    if (!orgId || !inviteEmail.trim() || !selected || operationInProgress) return;
                     setInviting(true);
+                    setOperationInProgress('invite-user');
                     try {
                       const resp: any = await apiFetch(`/orgs/${orgId}/users`, {
                         method: 'POST',
@@ -584,17 +731,30 @@ export default function TeamsManagement() {
                         await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId, role: 'member' } });
                         setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member');
                             setAddUserMode(null);
-                        const updated = await loadMembers(selected);
-                            setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: updated?.length || 0 } : d));
+                        // Optimistic update for member count
+                        setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: (d.member_count || 0) + 1 } : d));
+                        // Add the new user to members list optimistically
+                        setMembers(prev => [
+                          ...prev,
+                          {
+                            userId,
+                            role: 'member',
+                            displayName: inviteName.trim() || undefined,
+                            email: inviteEmail.trim()
+                          }
+                        ]);
                         try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
                         toast({ title: 'Invited', description: 'User invited and added to team.' });
                       }
                     } catch (e: any) {
                       toast({ title: 'Invite failed', description: e?.message || 'Could not invite user', variant: 'destructive' as any });
-                    } finally { setInviting(false); }
+                    } finally { 
+                      setInviting(false);
+                      setOperationInProgress(null);
+                    }
                   }}
-                  disabled={inviting || !inviteEmail.trim()}
-                >Invite & Add</Button>
+                  disabled={inviting || !inviteEmail.trim() || operationInProgress === 'invite-user'}
+                >{inviting || operationInProgress === 'invite-user' ? 'Inviting...' : 'Invite & Add'}</Button>
               </div>
             </div>
               </div>
@@ -622,22 +782,41 @@ export default function TeamsManagement() {
                         value={m.role}
                         onValueChange={async (newRole: 'lead' | 'member') => {
                           const orgId = getApiContext().orgId || '';
+                          const originalRole = m.role;
+                          
+                          // Check if trying to assign team lead when one already exists
+                          if (newRole === 'lead') {
+                            const existingLead = members.find(member => member.role === 'lead' && member.userId !== m.userId);
+                            if (existingLead) {
+                              toast({
+                                title: 'Cannot assign team lead',
+                                description: `${existingLead.displayName || existingLead.email} is already the team lead. A team can only have one lead.`,
+                                variant: 'destructive'
+                              });
+                              return;
+                            }
+                          }
+                          
+                          // Optimistic role update first
+                          setMembers(prev => prev.map(x => x.userId === m.userId ? { ...x, role: newRole } : x));
+                          
                       try {
                           await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { 
                             method: 'POST', 
                             body: { userId: m.userId, role: newRole } 
                           });
-                          // Optimistic role update
-                          setMembers(prev => prev.map(x => x.userId === m.userId ? { ...x, role: newRole } : x));
-                          void loadMembers(selected);
+                            
                           toast({ 
                             title: 'Role updated', 
                             description: `${m.displayName || m.email} is now a ${newRole}.` 
                           });
-                          } catch (error) {
+                          } catch (error: any) {
+                            // Rollback optimistic update
+                            setMembers(prev => prev.map(x => x.userId === m.userId ? { ...x, role: originalRole } : x));
+                            
                             toast({ 
-                              title: 'Error', 
-                              description: 'Failed to update role', 
+                              title: 'Error updating role', 
+                              description: error.message || 'Failed to update role', 
                               variant: 'destructive' 
                             });
                           }
@@ -648,7 +827,14 @@ export default function TeamsManagement() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="member">Member</SelectItem>
-                          {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
+                          {isAdmin && (
+                            <SelectItem 
+                              value="lead" 
+                              disabled={members.some(member => member.role === 'lead' && member.userId !== m.userId)}
+                            >
+                              Team Lead {members.some(member => member.role === 'lead' && member.userId !== m.userId) ? '(Already assigned)' : ''}
+                            </SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                     )}
@@ -656,13 +842,38 @@ export default function TeamsManagement() {
                   <div className="col-span-1 text-right">
                     <Button size="sm" variant="outline" onClick={async ()=>{
                       const orgId = getApiContext().orgId || '';
-                      await apiFetch(`/orgs/${orgId}/departments/${selected}/users/${m.userId}`, { method: 'DELETE' });
+                      if (operationInProgress) return;
+                      setOperationInProgress(`remove-user-${m.userId}`);
+
+                      // Store original state for rollback
+                      const originalMembers = [...members];
+                      const originalMemberCount = departments.find(d => d.id === selected)?.member_count || 0;
+
                       // Optimistic remove
                       setMembers(prev => prev.filter(x => x.userId !== m.userId));
                       setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: Math.max(0, (d.member_count || 1) - 1) } : d));
-                      void loadMembers(selected!);
-                      try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
-                    }}>Remove</Button>
+
+                      try {
+                        await apiFetch(`/orgs/${orgId}/departments/${selected}/users/${m.userId}`, { method: 'DELETE' });
+
+                        // Trigger org users changed event for other components
+                        try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
+                      } catch (error: any) {
+                        // Rollback optimistic update
+                        setMembers(originalMembers);
+                        setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: originalMemberCount } : d));
+
+                        toast({
+                          title: 'Error removing member',
+                          description: error.message || 'Failed to remove team member. Please try again.',
+                          variant: 'destructive' as any,
+                        });
+                      } finally {
+                        setOperationInProgress(null);
+                      }
+                    }} disabled={operationInProgress?.startsWith('remove-user')}>{
+                      operationInProgress === `remove-user-${m.userId}` ? 'Removing...' : 'Remove'
+                    }</Button>
                   </div>
                 </div>
               ))}
@@ -707,7 +918,12 @@ export default function TeamsManagement() {
             <AlertDialogFooter>
               <AlertDialogCancel onClick={cancelEdit}>Cancel</AlertDialogCancel>
               <AlertDialogAction asChild>
-                <Button onClick={() => onUpdate(departments.find(d => d.id === editing)!, editName, editColor)} disabled={!editName.trim()}>Save Changes</Button>
+                <Button 
+                  onClick={() => onUpdate(departments.find(d => d.id === editing)!, editName, editColor)} 
+                  disabled={!editName.trim() || operationInProgress !== null}
+                >
+                  {operationInProgress?.startsWith('update-') ? 'Saving...' : 'Save Changes'}
+                </Button>
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -78,7 +78,17 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
       const revived = (list || []).map((d) => ({ 
         ...d, 
         uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
+        // Ensure both departmentId and department_id are available for lookup
+        departmentId: d.departmentId || d.department_id,
+        department_id: d.department_id || d.departmentId,
       })) as StoredDocument[];
+      
+      console.log('Documents loaded with department info:', revived.slice(0, 3).map(d => ({
+        name: d.name,
+        departmentId: d.departmentId,
+        department_id: (d as any).department_id
+      })));
+      
       // Extra safety: ensure no folder documents are included
       const filteredRevived = revived.filter(d => d.type !== 'folder');
       setDocuments(filteredRevived);
@@ -281,9 +291,19 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
     
     try {
+      // Only send departmentId if explicitly selected by user
+      // Let backend determine appropriate department for the user
+      const body: any = { parentPath, name: clean };
+      if (selectedDepartmentId) {
+        body.departmentId = selectedDepartmentId;
+        console.log(`Creating folder with explicit department: ${selectedDepartmentId}`);
+      } else {
+        console.log('Creating folder without explicit department - backend will determine');
+      }
+      
       const result = await apiFetch(`/orgs/${orgId}/folders`, { 
         method: 'POST', 
-        body: { parentPath, name: clean, departmentId: selectedDepartmentId || undefined } 
+        body 
       });
       
       // Update local state

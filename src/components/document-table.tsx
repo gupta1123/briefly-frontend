@@ -42,7 +42,7 @@ const typeIcons = {
   Invoice: <FileText className="h-5 w-5 text-green-600" />,
 };
 
-export default function DocumentTable({ documents }: { documents: Document[] }) {
+export default function DocumentTable({ documents, onDelete }: { documents: Document[]; onDelete?: (id: string) => void }) {
   const { toast } = useToast();
   const { orgId } = getApiContext();
 
@@ -133,9 +133,11 @@ export default function DocumentTable({ documents }: { documents: Document[] }) 
                       <DropdownMenuItem>
                         <FileClock className="mr-2 h-4 w-4" /> View History
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
+                      {onDelete && (
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(doc.id)}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

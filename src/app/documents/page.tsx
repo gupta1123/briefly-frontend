@@ -63,9 +63,20 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 
 function DocumentsPageContent() {
   const { documents, folders, listFolders, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments } = useDocuments();
-  const { departments } = useDepartments();
+  const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
   const { hasRoleAtLeast } = useAuth();
   const searchParams = useSearchParams();
+  
+  // Global debug: Log when departments vs documents are loaded
+  React.useEffect(() => {
+    console.log('DocumentsPageContent state:', {
+      departmentsCount: departments.length,
+      documentsCount: documents.length,
+      departmentsLoading,
+      documentsLoading: isLoading,
+      selectedDepartmentId
+    });
+  }, [departments.length, documents.length, departmentsLoading, isLoading, selectedDepartmentId]);
   const [path, setPath] = useState<string[]>([]);
   
   // Initialize path from URL parameters on mount
@@ -125,6 +136,13 @@ function DocumentsPageContent() {
   const [folderToDelete, setFolderToDelete] = useState<string[] | null>(null);
   const [deletionMode, setDeletionMode] = useState<'move_to_root' | 'delete_all'>('move_to_root');
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Bulk delete confirmation dialog state
+  const [confirmBulkDeleteOpen, setConfirmBulkDeleteOpen] = useState(false);
+  
+  // Individual delete confirmation dialog state  
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<StoredDocument | null>(null);
   
   const handleFolderDeletion = async () => {
     if (!folderToDelete) return;
@@ -261,6 +279,15 @@ function DocumentsPageContent() {
     selectedIds.forEach(id => removeDocument(id));
     setSelectedIds(new Set());
     setSelectAll(false);
+    setConfirmBulkDeleteOpen(false);
+  };
+
+  const handleSingleDelete = () => {
+    if (documentToDelete) {
+      removeDocument(documentToDelete.id);
+      setDocumentToDelete(null);
+      setConfirmDeleteOpen(false);
+    }
   };
 
   const bulkAddTag = () => {
@@ -408,7 +435,7 @@ function DocumentsPageContent() {
         </div>
 
         <div className="flex items-center gap-3">
-          {hasRoleAtLeast('systemAdmin') && (
+          {hasRoleAtLeast('member') && (
           <Button asChild className="gap-2">
             <Link href={`/documents/upload${path.length ? `?path=${encodeURIComponent(path.join('/'))}` : ''}`}><Plus className="h-4 w-4" /> Upload Document</Link>
           </Button>
@@ -478,7 +505,7 @@ function DocumentsPageContent() {
                 </Dialog>
               )}
               {hasRoleAtLeast('member') && (
-                <Button variant="destructive" onClick={bulkDelete}>Delete</Button>
+                <Button variant="destructive" onClick={() => setConfirmBulkDeleteOpen(true)}>Delete</Button>
               )}
             </div>
           )}
@@ -710,8 +737,20 @@ function DocumentsPageContent() {
                         {hasRoleAtLeast('systemAdmin') ? (
                           (() => {
                             const deptId = (d as any).departmentId || (d as any).department_id || null;
+                            console.log('Department lookup debug:', { 
+                              docTitle: d.name, 
+                              deptId, 
+                              availableDepts: departments.map(x => ({ id: x.id, name: x.name }))
+                            });
                             const dept = departments.find(x => x.id === deptId);
-                            if (!dept) return <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">General</span>;
+                            if (!dept) {
+                              // More descriptive fallback when department lookup fails
+                              return (
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="orange" title={`Department ID: ${deptId} not found`}>
+                                  Unknown ({deptId ? deptId.slice(0, 8) + '...' : 'null'})
+                                </span>
+                              );
+                            }
                             return (
                               <span className="inline-flex items-center gap-1">
                                 <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dept.color || 'default'}>{dept.name}</span>
@@ -734,6 +773,19 @@ function DocumentsPageContent() {
                         )}
                         <Link href={`/documents/${d.id}`} className="text-primary hover:underline">View</Link>
                         <Link href={`/chat?docId=${d.id}`} className="text-primary hover:underline">Ask</Link>
+                        {hasRoleAtLeast('member') && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-red-600 hover:text-red-700 h-auto p-1"
+                            onClick={() => {
+                              setDocumentToDelete(d);
+                              setConfirmDeleteOpen(true);
+                            }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -911,6 +963,74 @@ function DocumentsPageContent() {
               {isDeleting ? 'Deleting...' : (
                 deletionMode === 'delete_all' ? 'Delete All' : 'Delete Folder'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={confirmBulkDeleteOpen} onOpenChange={setConfirmBulkDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Documents</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete <span className="font-medium">{selectedIds.size} document(s)</span>? 
+              This action cannot be undone.
+            </p>
+            
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <p className="text-sm text-destructive font-medium">
+                ⚠️ Warning: This will permanently delete the selected documents and their files.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmBulkDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={bulkDelete}
+            >
+              Delete {selectedIds.size} Document{selectedIds.size === 1 ? '' : 's'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Individual Delete Confirmation Dialog */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Document</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete <span className="font-medium">"{documentToDelete?.title || documentToDelete?.name}"</span>? 
+              This action cannot be undone.
+            </p>
+            
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <p className="text-sm text-destructive font-medium">
+                ⚠️ Warning: This will permanently delete the document and its files.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleSingleDelete}
+            >
+              Delete Document
             </Button>
           </DialogFooter>
         </DialogContent>

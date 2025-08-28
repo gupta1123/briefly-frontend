@@ -386,6 +386,16 @@ function UploadContent() {
     const item = queue[index];
     if (!item || !item.extracted || !item.form || item.status === 'success' || item.locked) return;
     
+    // Check if admin has selected department (required for proper access control)
+    if (hasRoleAtLeast('systemAdmin') && folderPath.length === 0 && !selectedDepartmentId) {
+      toast({ 
+        title: 'Department selection required', 
+        description: 'Please select a department before uploading documents.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     // Immediately lock the item to prevent duplicate saves
     setQueue(prev => prev.map((q, i) => i === index ? { ...q, locked: true, status: 'saving' } : q));
     
@@ -601,12 +611,15 @@ function UploadContent() {
           {hasRoleAtLeast('systemAdmin') && folderPath.length === 0 ? (
             <div className="flex items-center gap-2">
               <span className="text-sm">Department</span>
-              <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)}>
-                <UiSelectTrigger className="w-[220px]"><UiSelectValue placeholder="Select" /></UiSelectTrigger>
+              <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)} required>
+                <UiSelectTrigger className="w-[220px]"><UiSelectValue placeholder="Select department" /></UiSelectTrigger>
                 <UiSelectContent>
                   {departments.map(d => (<UiSelectItem key={d.id} value={d.id}>{d.name}</UiSelectItem>))}
                 </UiSelectContent>
               </UiSelect>
+              {!selectedDepartmentId && (
+                <span className="text-xs text-red-600">Required</span>
+              )}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">
