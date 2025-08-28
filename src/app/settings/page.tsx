@@ -25,6 +25,7 @@ import RolesManagement from '@/components/roles-management';
 import TeamsManagement from '@/components/teams-management';
 import UsersManagement from '@/components/users-management';
 import OverridesManagement from '@/components/overrides-management';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,24 +43,40 @@ const ACCENT_COLORS = [
 ];
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === 'systemAdmin';
   const isTeamLead = user?.role === 'teamLead';
   const { isAuthenticated } = useAuth();
 
   const { toast } = useToast();
+  
+  // Loading states for different sections
+  const [organizationLoading, setOrganizationLoading] = React.useState(true);
+  const [teamsLoading, setTeamsLoading] = React.useState(true);
+  const [usersLoading, setUsersLoading] = React.useState(true);
+  const [securityLoading, setSecurityLoading] = React.useState(true);
 
 
   // Load organization settings including categories
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin) return;
+    if (!isAuthenticated || !isAdmin) {
+      setOrganizationLoading(false);
+      return;
+    }
     (async () => {
       try {
         const orgId = getApiContext().orgId || '';
-        if (!orgId) return;
+        if (!orgId) {
+          setOrganizationLoading(false);
+          return;
+        }
         const orgSettings = await apiFetch<any>(`/orgs/${orgId}/settings`);
         setCategories(orgSettings.categories || []);
-      } catch {}
+      } catch {
+        // Handle error silently
+      } finally {
+        setOrganizationLoading(false);
+      }
     })();
   }, [isAuthenticated, isAdmin]);
   const { policy, setEnabled, addIp, removeIp, replaceIps, getCurrentIp } = useSecurity();
@@ -90,6 +107,20 @@ export default function SettingsPage() {
     setUiScale((settings.ui_scale as any) || 'md');
   }, [settings]);
 
+  // Simulate loading for different sections when authenticated
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    // Teams loading simulation
+    setTimeout(() => setTeamsLoading(false), 800);
+    
+    // Users loading simulation  
+    setTimeout(() => setUsersLoading(false), 1000);
+    
+    // Security loading simulation
+    setTimeout(() => setSecurityLoading(false), 600);
+  }, [isAuthenticated]);
+
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-6">
@@ -117,10 +148,29 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">Basics and content preferences for your organization.</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <CategoriesManagement 
-              categories={categories}
-              onCategoriesChange={setCategories}
-            />
+            {organizationLoading ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-9 w-20" />
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-3/4" />
+                  <Skeleton className="h-8 w-1/2" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-16" />
+                </div>
+              </div>
+            ) : (
+              <CategoriesManagement 
+                categories={categories}
+                onCategoriesChange={setCategories}
+              />
+            )}
           </CardContent>
         </Card>
         </TabsContent>
@@ -192,11 +242,72 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="teams">
-          <TeamsManagement />
+          {teamsLoading ? (
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-4 w-64" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-9 w-28" />
+                </div>
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="space-y-2">
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="h-4 w-48" />
+                      </div>
+                      <div className="flex gap-2">
+                        <Skeleton className="h-8 w-20" />
+                        <Skeleton className="h-8 w-16" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <TeamsManagement />
+          )}
         </TabsContent>
 
         <TabsContent value="users">
-          <UsersManagement />
+          {usersLoading ? (
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-4 w-56" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-9 w-32" />
+                  <Skeleton className="h-9 w-40" />
+                </div>
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="flex items-center justify-between p-3 border rounded">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Skeleton className="h-6 w-16" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <UsersManagement />
+          )}
         </TabsContent>
 
         <TabsContent value="roles">
@@ -223,60 +334,93 @@ export default function SettingsPage() {
 
         {isAdmin && (
         <TabsContent value="security">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">IP Allowlist <Badge variant="outline">Org‑wide</Badge></CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div className="text-sm">
-                  <div className="font-medium">Enforce allowlist</div>
-                  <div className="text-xs text-muted-foreground">Only listed IPs can access the org endpoints when enabled.</div>
+          {securityLoading ? (
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-40" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-3 border rounded">
+                  <div className="space-y-1">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-64" />
+                  </div>
+                  <Skeleton className="h-6 w-12" />
                 </div>
-                <Switch checked={policy.enabled} onCheckedChange={(v) => setEnabled(!!v)} />
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Allowed IPs</div>
-                <div className="flex gap-2 flex-wrap items-end">
-                  <Input id="ipAdd2" placeholder="e.g., 203.0.113.10" className="w-64" />
-                  <Button onClick={() => {
-                    const el = document.getElementById('ipAdd2') as HTMLInputElement | null;
-                    if (!el) return;
-                    const v = el.value.trim();
-                    if (!v) return;
-                    addIp(v);
-                    el.value = '';
-                  }}>Add</Button>
-                  <Button variant="outline" onClick={async () => {
-                    const ip = await getCurrentIp();
-                    if (ip) addIp(ip);
-                  }}>Use my IP</Button>
-                </div>
-                <div className="rounded-md border divide-y">
-                  {policy.ips.map(ip => (
-                    <div key={ip} className="flex items-center justify-between px-3 py-2 text-sm">
-                      <span className="font-mono">{ip}</span>
-                      <Button size="sm" variant="outline" onClick={() => removeIp(ip)}>Remove</Button>
-                    </div>
-                  ))}
-                  {policy.ips.length === 0 && <div className="p-3 text-xs text-muted-foreground">No IPs added.</div>}
-                </div>
-                <div className="pt-2">
-                  <label className="text-xs text-muted-foreground">Bulk replace (one per line)</label>
-                  <textarea className="mt-1 w-full rounded-md border bg-background p-2 text-sm" rows={4} placeholder="203.0.113.5\n2001:db8::1" id="bulk-ips-settings" />
-                  <div className="mt-2 flex items-center gap-2">
-                    <Button variant="outline" onClick={()=>{
-                      const ta = document.getElementById('bulk-ips-settings') as HTMLTextAreaElement | null;
-                      if (!ta) return;
-                      const ips = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
-                      replaceIps(ips);
-                    }}>Replace</Button>
-                    <p className="text-xs text-muted-foreground">This overwrites the list above.</p>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-9 w-64" />
+                    <Skeleton className="h-9 w-16" />
+                    <Skeleton className="h-9 w-24" />
+                  </div>
+                  <div className="border rounded divide-y">
+                    {[1, 2].map(i => (
+                      <div key={i} className="flex items-center justify-between p-3">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-8 w-16" />
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">IP Allowlist <Badge variant="outline">Org‑wide</Badge></CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div className="text-sm">
+                    <div className="font-medium">Enforce allowlist</div>
+                    <div className="text-xs text-muted-foreground">Only listed IPs can access the org endpoints when enabled.</div>
+                  </div>
+                  <Switch checked={policy.enabled} onCheckedChange={(v) => setEnabled(!!v)} />
+                </div>
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Allowed IPs</div>
+                  <div className="flex gap-2 flex-wrap items-end">
+                    <Input id="ipAdd2" placeholder="e.g., 203.0.113.10" className="w-64" />
+                    <Button onClick={() => {
+                      const el = document.getElementById('ipAdd2') as HTMLInputElement | null;
+                      if (!el) return;
+                      const v = el.value.trim();
+                      if (!v) return;
+                      addIp(v);
+                      el.value = '';
+                    }}>Add</Button>
+                    <Button variant="outline" onClick={async () => {
+                      const ip = await getCurrentIp();
+                      if (ip) addIp(ip);
+                    }}>Use my IP</Button>
+                  </div>
+                  <div className="rounded-md border divide-y">
+                    {policy.ips.map(ip => (
+                      <div key={ip} className="flex items-center justify-between px-3 py-2 text-sm">
+                        <span className="font-mono">{ip}</span>
+                        <Button size="sm" variant="outline" onClick={() => removeIp(ip)}>Remove</Button>
+                      </div>
+                    ))}
+                    {policy.ips.length === 0 && <div className="p-3 text-xs text-muted-foreground">No IPs added.</div>}
+                  </div>
+                  <div className="pt-2">
+                    <label className="text-xs text-muted-foreground">Bulk replace (one per line)</label>
+                    <textarea className="mt-1 w-full rounded-md border bg-background p-2 text-sm" rows={4} placeholder="203.0.113.5\n2001:db8::1" id="bulk-ips-settings" />
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button variant="outline" onClick={()=>{
+                        const ta = document.getElementById('bulk-ips-settings') as HTMLTextAreaElement | null;
+                        if (!ta) return;
+                        const ips = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
+                        replaceIps(ips);
+                      }}>Replace</Button>
+                      <p className="text-xs text-muted-foreground">This overwrites the list above.</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
         )}
 
