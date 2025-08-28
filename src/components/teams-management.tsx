@@ -67,6 +67,8 @@ export default function TeamsManagement() {
   const [pendingAddUserId, setPendingAddUserId] = React.useState<string>('');
   const [pendingAddRole, setPendingAddRole] = React.useState<'lead'|'member'>('member');
   const [currentUserId, setCurrentUserId] = React.useState<string>('');
+  // Add user mode selection
+  const [addUserMode, setAddUserMode] = React.useState<'existing' | 'invite' | null>(null);
   // Inline invite state for team leads/admins
   const [inviteEmail, setInviteEmail] = React.useState('');
   const [inviteName, setInviteName] = React.useState('');
@@ -328,48 +330,60 @@ export default function TeamsManagement() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      {isAdmin && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => startEdit(dept)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => { setSelected(dept.id); void loadMembers(dept.id); }}
-                        title="Manage members"
-                      >
-                        <Users className="w-4 h-4" />
-                      </Button>
-                      {isAdmin && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700">
-                              <Trash2 className="w-4 h-4" />
+                      {dept.name === 'General' ? (
+                        <div className="text-xs text-muted-foreground px-2 py-1 bg-gray-100 rounded">
+                          Default team for admin
+                        </div>
+                      ) : (
+                        <>
+                          {isAdmin && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => startEdit(dept)}
+                            >
+                              <Edit className="w-4 h-4" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete team?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete the "{dept.name}" team and remove all members. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => onDelete(dept)}
-                                className="bg-red-600 hover:bg-red-700"
-                              >
-                                Delete Team
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelected(dept.id);
+                              setAddUserMode(null); // Reset mode when switching teams
+                              void loadMembers(dept.id);
+                            }}
+                            title="Manage members"
+                          >
+                            <Users className="w-4 h-4" />
+                          </Button>
+                          {isAdmin && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700">
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete team?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete the "{dept.name}" team and remove all members. This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => onDelete(dept)}
+                                    className="bg-red-600 hover:bg-red-700"
+                                  >
+                                    Delete Team
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -381,7 +395,7 @@ export default function TeamsManagement() {
       )}
 
       {/* Members panel */}
-      {selected && (
+      {selected && departments.find(d => d.id === selected)?.name !== 'General' && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -393,111 +407,185 @@ export default function TeamsManagement() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2 items-end">
-              <Input 
-                placeholder="Search users…" 
-                className="w-48" 
-                value={userQuery} 
-                onChange={(e)=>setUserQuery(e.target.value)} 
-              />
-              <Select value={pendingAddUserId} onValueChange={setPendingAddUserId}>
-                <SelectTrigger className="w-52"><SelectValue placeholder="Select user" /></SelectTrigger>
-                <SelectContent>
-                  {orgUsers
-                    .filter(u => !members.some(m => m.userId === u.userId))
-                    .filter(u => (u.displayName || u.email || u.userId).toLowerCase().includes(userQuery.toLowerCase()))
-                    .slice(0,50)
-                    .map(u => (
-                      <SelectItem key={u.userId} value={u.userId}>
-                        {u.displayName || u.email || u.userId}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <Select value={pendingAddRole} onValueChange={(value: 'lead'|'member') => setPendingAddRole(value)}>
-                <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">Member</SelectItem>
-                  {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
-                </SelectContent>
-              </Select>
-              <Button onClick={async ()=>{
-                if (!pendingAddUserId) return;
-                const orgId = getApiContext().orgId || '';
-                try {
-                  await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId: pendingAddUserId, role: pendingAddRole } });
-                  // Optimistic update
-                  const added = orgUsers.find(u => u.userId === pendingAddUserId);
-                  if (added) {
-                    setMembers(prev => prev.some(m => m.userId === added.userId) ? prev : prev.concat([{ userId: added.userId, role: pendingAddRole, displayName: added.displayName, email: added.email }]));
-                    setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: (d.member_count || 0) + 1 } : d));
-                  }
-                  setPendingAddUserId('');
-                  setUserQuery('');
-                  // Ensure eventual consistency
-                  void loadMembers(selected!);
-                  try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
-                } catch {}
-              }}>Add</Button>
-            </div>
-            {/* Inline invite for team leads/admins */}
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
-              <Input 
-                placeholder="Invite email"
-                value={inviteEmail}
-                onChange={(e)=>setInviteEmail(e.target.value)}
-              />
-              <Input 
-                placeholder="Display name (optional)"
-                value={inviteName}
-                onChange={(e)=>setInviteName(e.target.value)}
-              />
-              <Input 
-                placeholder="Password (optional)"
-                value={invitePassword}
-                onChange={(e)=>setInvitePassword(e.target.value)}
-              />
-              <Select value={inviteRole} onValueChange={(v: 'member'|'guest') => setInviteRole(v)}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="Role" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="guest">Guest</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="md:col-span-2 flex gap-2 justify-end">
-                <Button variant="outline" onClick={()=>{ setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member'); }}>Clear</Button>
-                <Button 
-                  onClick={async ()=>{
-                    const orgId = getApiContext().orgId || '';
-                    if (!orgId || !inviteEmail.trim() || !selected) return;
-                    setInviting(true);
-                    try {
-                      const resp: any = await apiFetch(`/orgs/${orgId}/users`, {
-                        method: 'POST',
-                        body: {
-                          email: inviteEmail.trim(),
-                          display_name: inviteName.trim() || undefined,
-                          role: inviteRole,
-                          password: invitePassword.trim() || undefined,
-                        },
-                      });
-                      const userId = resp?.user_id || resp?.userId;
-                      if (userId) {
-                        await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId, role: 'member' } });
-                        setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member');
-                        const updated = await loadMembers(selected);
-                        setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: updated?.length || 0 } : d));
-                        try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
-                        toast({ title: 'Invited', description: 'User invited and added to team.' });
-                      }
-                    } catch (e: any) {
-                      toast({ title: 'Invite failed', description: e?.message || 'Could not invite user', variant: 'destructive' as any });
-                    } finally { setInviting(false); }
-                  }}
-                  disabled={inviting || !inviteEmail.trim()}
-                >Invite & Add</Button>
+            {/* Add User Options */}
+            {!addUserMode && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-muted-foreground">Add Team Member</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAddUserMode('existing')}
+                    className="h-auto p-4 flex flex-col items-center gap-2"
+                  >
+                    <Users className="w-6 h-6" />
+                    <div className="text-center">
+                      <div className="font-medium">Add Existing User</div>
+                      <div className="text-xs text-muted-foreground">Select from organization members</div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAddUserMode('invite')}
+                    className="h-auto p-4 flex flex-col items-center gap-2"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                    <div className="text-center">
+                      <div className="font-medium">Invite New User</div>
+                      <div className="text-xs text-muted-foreground">Send invitation via email</div>
+                    </div>
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Existing User Selection */}
+            {addUserMode === 'existing' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium">Add Existing User</h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setAddUserMode(null);
+                      setPendingAddUserId('');
+                      setUserQuery('');
+                    }}
+                  >
+                    Back
+                  </Button>
+                </div>
+                <div className="flex gap-2 items-end">
+                  <Input
+                    placeholder="Search users..."
+                    className="w-48"
+                    value={userQuery}
+                    onChange={(e)=>setUserQuery(e.target.value)}
+                  />
+                  <Select value={pendingAddUserId} onValueChange={setPendingAddUserId}>
+                    <SelectTrigger className="w-52"><SelectValue placeholder="Select user" /></SelectTrigger>
+                    <SelectContent>
+                      {orgUsers
+                        .filter(u => !members.some(m => m.userId === u.userId))
+                        .filter(u => (u.displayName || u.email || u.userId).toLowerCase().includes(userQuery.toLowerCase()))
+                        .slice(0,50)
+                        .map(u => (
+                          <SelectItem key={u.userId} value={u.userId}>
+                            {u.displayName || u.email || u.userId}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={pendingAddRole} onValueChange={(value: 'lead'|'member') => setPendingAddRole(value)}>
+                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={async ()=>{
+                    if (!pendingAddUserId) return;
+                    const orgId = getApiContext().orgId || '';
+                    try {
+                      await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId: pendingAddUserId, role: pendingAddRole } });
+                      // Optimistic update
+                      const added = orgUsers.find(u => u.userId === pendingAddUserId);
+                      if (added) {
+                        setMembers(prev => prev.some(m => m.userId === added.userId) ? prev : prev.concat([{ userId: added.userId, role: pendingAddRole, displayName: added.displayName, email: added.email }]));
+                        setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: (d.member_count || 0) + 1 } : d));
+                      }
+                      setPendingAddUserId('');
+                      setUserQuery('');
+                      setAddUserMode(null);
+                      // Ensure eventual consistency
+                      void loadMembers(selected!);
+                      try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
+                    } catch {}
+                  }}>Add</Button>
+                </div>
+              </div>
+            )}
+            {/* Invite New User */}
+            {addUserMode === 'invite' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium">Invite New User</h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setAddUserMode(null);
+                      setInviteEmail('');
+                      setInviteName('');
+                      setInvitePassword('');
+                      setInviteRole('member');
+                    }}
+                  >
+                    Back
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
+                  <Input
+                    placeholder="Invite email"
+                    value={inviteEmail}
+                    onChange={(e)=>setInviteEmail(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Display name (optional)"
+                    value={inviteName}
+                    onChange={(e)=>setInviteName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Password (optional)"
+                    value={invitePassword}
+                    onChange={(e)=>setInvitePassword(e.target.value)}
+                  />
+                  <Select value={inviteRole} onValueChange={(v: 'member'|'guest') => setInviteRole(v)}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Role" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="guest">Guest</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="md:col-span-2 flex gap-2 justify-end">
+                    <Button variant="outline" onClick={()=>{ setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member'); }}>Clear</Button>
+                    <Button
+                      onClick={async ()=>{
+                        const orgId = getApiContext().orgId || '';
+                        if (!orgId || !inviteEmail.trim() || !selected) return;
+                        setInviting(true);
+                        try {
+                          const resp: any = await apiFetch(`/orgs/${orgId}/users`, {
+                            method: 'POST',
+                            body: {
+                              email: inviteEmail.trim(),
+                              display_name: inviteName.trim() || undefined,
+                              role: inviteRole,
+                              password: invitePassword.trim() || undefined,
+                            },
+                          });
+                          const userId = resp?.user_id || resp?.userId;
+                          if (userId) {
+                            await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId, role: 'member' } });
+                            setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member');
+                            setAddUserMode(null);
+                            const updated = await loadMembers(selected);
+                            setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: updated?.length || 0 } : d));
+                            try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
+                            toast({ title: 'Invited', description: 'User invited and added to team.' });
+                          }
+                        } catch (e: any) {
+                          toast({ title: 'Invite failed', description: e?.message || 'Could not invite user', variant: 'destructive' as any });
+                        } finally { setInviting(false); }
+                      }}
+                      disabled={inviting || !inviteEmail.trim()}
+                    >Invite & Add</Button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="rounded-md border">
               {/* Header row */}
               <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground border-b">
