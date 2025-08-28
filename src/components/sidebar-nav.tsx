@@ -15,8 +15,6 @@ import {
 } from './ui/sidebar';
 import { useDocuments } from '@/hooks/use-documents';
 import { useAuth } from '@/hooks/use-auth';
-import { useDepartments } from '@/hooks/use-departments';
-import { Badge } from '@/components/ui/badge';
 
 const links = [
   { href: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -30,39 +28,35 @@ export default function SidebarNav() {
   const pathname = usePathname();
   const { documents } = useDocuments();
   const { user } = useAuth();
-  const { departments, selectedDepartmentId } = useDepartments();
   const isManager = user?.role === 'systemAdmin' || user?.role === 'teamLead';
-
-  const roleLabel = (r?: string) => {
-    switch ((r || '').toLowerCase()) {
-      case 'systemadmin': return 'Admin';
-      case 'teamlead': return 'Team Lead';
-      case 'member': return 'Member';
-      case 'guest': return 'Guest';
-      default: return r || '';
-    }
-  };
-  const team = departments.find(d => d.id === selectedDepartmentId) || null;
+  const isAdmin = user?.role === 'systemAdmin';
 
   return (
     <>
       <SidebarGroup>
-        <SidebarGroupLabel>Main</SidebarGroupLabel>
+        <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Main</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             {links.slice(0, 4).map(({ href, label, Icon, badge }) => (
               <SidebarMenuItem key={href}>
-                <SidebarMenuButton asChild isActive={pathname === href} tooltip={label}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === href}
+                  tooltip={label}
+                  className="hover-premium focus-premium data-[active=true]:bg-sidebar-accent data-[active=true]:shadow-sm"
+                >
                   <Link href={href}>
                     <Icon />
                     <span>{label}</span>
                   </Link>
                 </SidebarMenuButton>
                 {href === '/documents' && (
-                  <SidebarMenuBadge aria-hidden>{documents.length}</SidebarMenuBadge>
+                  <SidebarMenuBadge aria-hidden className="bg-sidebar-accent text-sidebar-accent-foreground shadow-sm">
+                    {documents.length}
+                  </SidebarMenuBadge>
                 )}
                 {badge && (
-                  <SidebarMenuBadge aria-hidden className="bg-emerald-500/20 text-emerald-600">
+                  <SidebarMenuBadge aria-hidden className="bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/30 dark:text-emerald-400 shadow-sm">
                     {badge}
                   </SidebarMenuBadge>
                 )}
@@ -74,14 +68,25 @@ export default function SidebarNav() {
 
       {isManager && (
         <>
-          <SidebarSeparator />
+          <SidebarSeparator className="bg-sidebar-border/50" />
           <SidebarGroup>
-            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Admin</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {links.slice(4).map(({ href, label, Icon }) => (
+                {links.slice(4).filter(({ href }) => {
+                  // Only show Activity (audit) link for systemAdmin, not teamLead
+                  if (href === '/audit') {
+                    return isAdmin;
+                  }
+                  return true;
+                }).map(({ href, label, Icon }) => (
                   <SidebarMenuItem key={href}>
-                    <SidebarMenuButton asChild isActive={pathname === href} tooltip={label}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === href}
+                      tooltip={label}
+                      className="hover-premium focus-premium data-[active=true]:bg-sidebar-accent data-[active=true]:shadow-sm"
+                    >
                       <Link href={href}>
                         <Icon />
                         <span>{label}</span>
@@ -95,18 +100,7 @@ export default function SidebarNav() {
         </>
       )}
 
-      {/* Identity summary at bottom (below user section area) */}
-      <SidebarSeparator />
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <div className="px-3 py-2 flex items-center gap-2 text-xs">
-            <Badge variant="outline">{roleLabel(user?.role)}</Badge>
-            {team && (
-              <Badge variant="outline" data-color={team.color || 'default'} className="capitalize">{team.name}</Badge>
-            )}
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+
     </>
   );
 }
