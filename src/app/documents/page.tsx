@@ -453,10 +453,10 @@ function DocumentsPageContent() {
           {selectedIds.size > 0 && (
             <div className="ml-auto flex items-center gap-2">
               <Input ref={bulkTagInputRef} placeholder={`Add tag to ${selectedIds.size} selected`} value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} className="w-56" />
-              {hasRoleAtLeast('systemAdmin') && (
+              {hasRoleAtLeast('member') && (
                 <Button variant="outline" onClick={bulkAddTag}>Add Tag</Button>
               )}
-              {hasRoleAtLeast('systemAdmin') && (
+              {hasRoleAtLeast('member') && (
                 <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
                   <DialogTrigger asChild>
                     <Button variant="outline">Move…</Button>
@@ -477,7 +477,7 @@ function DocumentsPageContent() {
                 </DialogContent>
                 </Dialog>
               )}
-              {hasRoleAtLeast('systemAdmin') && (
+              {hasRoleAtLeast('member') && (
                 <Button variant="destructive" onClick={bulkDelete}>Delete</Button>
               )}
             </div>
@@ -486,7 +486,7 @@ function DocumentsPageContent() {
             <Button variant={view === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setView('grid')}><Grid2X2 className="h-4 w-4" /></Button>
             <Button variant={view === 'list' ? 'default' : 'outline'} size="icon" onClick={() => setView('list')}><List className="h-4 w-4" /></Button>
             <Button variant={view === 'cards' ? 'default' : 'outline'} size="icon" onClick={() => setView('cards')}><Grid3X3 className="h-4 w-4" /></Button>
-           {hasRoleAtLeast('systemAdmin') && (
+           {hasRoleAtLeast('member') && (
            <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
               <DialogTrigger asChild>
                 <Button className="ml-2">New Folder</Button>
@@ -581,7 +581,7 @@ function DocumentsPageContent() {
                       <div className="font-medium">{p[p.length - 1]}</div>
                       <div className="text-xs text-muted-foreground">{getDocumentsInPath(p).length} items</div>
                     </div>
-                    {hasRoleAtLeast('systemAdmin') && (
+                    {hasRoleAtLeast('member') && (
                       <Button
                         variant="ghost"
                         size="sm"

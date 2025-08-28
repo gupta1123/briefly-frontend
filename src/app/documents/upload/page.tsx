@@ -166,7 +166,7 @@ function UploadContent() {
     const ext = item.file.name.split('.').pop()?.toLowerCase();
     let inferred: Document['type'] = 'PDF';
     if (['png', 'jpg', 'jpeg'].includes(ext || '')) inferred = 'Image';
-    else if (['doc', 'docx'].includes(ext || '')) inferred = 'Word';
+    else if (['doc', 'docx', 'ppt', 'pptx'].includes(ext || '')) inferred = 'Word';
     setDocType(inferred);
 
     // simulate upload progress while reading
@@ -641,6 +641,8 @@ function UploadContent() {
                 <div className="text-sm text-muted-foreground">or click to browse</div>
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
                   <span className="rounded-full border px-2 py-0.5">PDF</span>
+                  <span className="rounded-full border px-2 py-0.5">DOC/DOCX</span>
+                  <span className="rounded-full border px-2 py-0.5">PPT/PPTX</span>
                   <span className="rounded-full border px-2 py-0.5">TXT</span>
                   <span className="rounded-full border px-2 py-0.5">MD</span>
                   <span className="rounded-full border px-2 py-0.5">JPG</span>
@@ -652,7 +654,7 @@ function UploadContent() {
                     ref={inputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.txt,.md,.jpg,.jpeg,.png,application/pdf,text/plain,text/markdown,image/jpeg,image/png"
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/markdown,image/jpeg,image/png"
                     className="hidden"
                     onChange={(e) => e.target.files && onSelect(e.target.files)}
                   />

@@ -45,8 +45,9 @@ function groupBy<T, K extends string>(list: T[], getKey: (t: T) => K) {
 export default function RolesManagement() {
   const [roles, setRoles] = React.useState<OrgRole[]>([]);
   const [loading, setLoading] = React.useState(false);
-  const [creating, setCreating] = React.useState(false);
-  const [newRole, setNewRole] = React.useState({ key: '', name: '', description: '' });
+  // Access is limited to core roles only; creation disabled
+  const [creating] = React.useState(false);
+  const [newRole] = React.useState({ key: '', name: '', description: '' });
 
   const refresh = React.useCallback(async () => {
     const orgId = getApiContext().orgId || '';
@@ -54,7 +55,8 @@ export default function RolesManagement() {
     setLoading(true);
     try {
       const data = await apiFetch<OrgRole[]>(`/orgs/${orgId}/roles`);
-      setRoles(data || []);
+      const allowed = new Set(['orgAdmin','teamLead','member','guest']);
+      setRoles((data || []).filter(r => allowed.has(r.key)));
     } finally {
       setLoading(false);
     }
@@ -74,43 +76,32 @@ export default function RolesManagement() {
     setRoles(prev => prev.map(r => r.key === role.key ? { ...r, permissions: nextPerms } : r));
   };
 
-  const onCreate = async () => {
-    const orgId = getApiContext().orgId || '';
-    if (!newRole.key || !newRole.name) return;
-    await apiFetch(`/orgs/${orgId}/roles`, { method: 'POST', body: { ...newRole, permissions: {} } });
-    setNewRole({ key: '', name: '', description: '' });
-    setCreating(false);
-    refresh();
-  };
+  const onCreate = async () => {};
 
-  const onDelete = async (role: OrgRole) => {
-    const orgId = getApiContext().orgId || '';
-    await apiFetch(`/orgs/${orgId}/roles/${encodeURIComponent(role.key)}`, { method: 'DELETE' });
-    setRoles(prev => prev.filter(r => r.key !== role.key));
-  };
+  const onDelete = async (_role: OrgRole) => {};
 
   const grouped = groupBy(PERMISSIONS, p => p.group);
+
+  const roleLabel = (key: string, name: string) => {
+    switch (key) {
+      case 'orgAdmin': return 'Admin';
+      case 'teamLead': return 'Team Lead';
+      case 'member': return 'Member';
+      case 'guest': return 'Guest';
+      default: return name || key;
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Roles & Permissions</CardTitle>
-        <p className="text-sm text-muted-foreground">Create custom roles and control granular access per organization.</p>
+        <p className="text-sm text-muted-foreground">Core roles for this organization.</p>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted-foreground">{roles.length} roles</div>
-          {!creating ? (
-            <Button onClick={() => setCreating(true)}>New Role</Button>
-          ) : (
-            <div className="flex gap-2 items-end">
-              <Input placeholder="key (e.g. editor)" value={newRole.key} onChange={e => setNewRole(r => ({ ...r, key: e.target.value }))} />
-              <Input placeholder="name" value={newRole.name} onChange={e => setNewRole(r => ({ ...r, name: e.target.value }))} />
-              <Input placeholder="description (optional)" value={newRole.description} onChange={e => setNewRole(r => ({ ...r, description: e.target.value }))} />
-              <Button onClick={onCreate}>Create</Button>
-              <Button variant="outline" onClick={() => { setCreating(false); setNewRole({ key: '', name: '', description: '' }); }}>Cancel</Button>
-            </div>
-          )}
+          {/* Role creation disabled in limited access mode */}
         </div>
 
         {loading ? (
@@ -121,15 +112,12 @@ export default function RolesManagement() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium">
-                      {role.name} <span className="text-muted-foreground text-xs">({role.key})</span>
+                      {roleLabel(role.key, role.name)} <span className="text-muted-foreground text-xs">({role.key})</span>
                     </div>
                     {role.description && <div className="text-xs text-muted-foreground">{role.description}</div>}
                   </div>
                   <div className="flex items-center gap-2">
-                    {role.is_system && <Badge variant="outline">System</Badge>}
-                    {!role.is_system && (
-                      <Button size="sm" variant="destructive" onClick={() => onDelete(role)}>Delete</Button>
-                    )}
+                    <Badge variant="outline">System</Badge>
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -156,4 +144,3 @@ export default function RolesManagement() {
     </Card>
   );
 }
-

@@ -13,6 +13,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { formatAppDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
+import { useDepartments } from '@/hooks/use-departments';
 import { H1 } from '@/components/typography';
 import { PageHeader } from '@/components/page-header';
 import { useToast } from '@/hooks/use-toast';
@@ -23,7 +24,8 @@ export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents, refresh } = useDocuments();
-  const { hasRoleAtLeast, isLoading: authLoading } = useAuth();
+  const { hasRoleAtLeast, isLoading: authLoading, user } = useAuth();
+  const { departments } = useDepartments();
   const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -341,7 +343,12 @@ export default function DocumentDetailPage() {
           ) : null}
           actions={
             <div className="flex items-center gap-2">
-              {hasRoleAtLeast('member') && (
+              {(() => {
+                const myDeptIds = new Set((departments || []).map((d:any) => d.id));
+                const docDeptId = (doc as any).departmentId || (doc as any).department_id || null;
+                const isAdmin = user?.role === 'systemAdmin';
+                const canEdit = hasRoleAtLeast('member') && (isAdmin || (docDeptId && myDeptIds.has(docDeptId)));
+                return canEdit ? (
                 <>
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc)}>
                     <Download className="h-4 w-4" /> Download
@@ -353,7 +360,8 @@ export default function DocumentDetailPage() {
                     <Link href={`/documents/${doc.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link>
                   </Button>
                 </>
-              )}
+                ) : null;
+              })()}
               {/* Removed "Ask about this" button per requirement */}
             </div>
           }
