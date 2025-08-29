@@ -112,21 +112,28 @@ function DocumentsPageContent() {
   const [shareDeptIds, setShareDeptIds] = useState<string[]>([]);
   const [folderAccess, setFolderAccess] = useState<Record<string, string[]>>({});
   const isAdmin = hasRoleAtLeast('systemAdmin');
+  const canShare = hasRoleAtLeast('teamLead');
   
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canShare) return;
     const orgId = getApiContext().orgId || '';
     if (!orgId) return;
-    const fetchAccess = async (p: string[]) => {
-      const key = p.join('/');
-      if (folderAccess[key]) return;
+    const missing = currentFolders
+      .map(p => p.filter(Boolean))
+      .filter(p => p.length > 0)
+      .filter(p => !folderAccess[p.join('/')]);
+    if (missing.length === 0) return;
+    (async () => {
       try {
-        const res = await apiFetch<{ path: string[]; departments: string[] }>(`/orgs/${orgId}/folder-access?path=${encodeURIComponent(key)}`);
-        setFolderAccess(prev => ({ ...prev, [key]: res?.departments || [] }));
+        const res = await apiFetch<{ results: Record<string, string[]> }>(`/orgs/${orgId}/folder-access/batch`, {
+          method: 'POST',
+          body: { paths: missing },
+        });
+        const map = res?.results || {};
+        setFolderAccess(prev => ({ ...prev, ...map }));
       } catch {}
-    };
-    currentFolders.forEach(p => { void fetchAccess(p); });
-  }, [currentFolders, isAdmin]);
+    })();
+  }, [currentFolders, canShare, folderAccess]);
 
   const deptById = (id?: string | null) => departments.find(d => d.id === id) || null;
   const bulkTagInputRef = useRef<HTMLInputElement>(null);
@@ -174,12 +181,11 @@ function DocumentsPageContent() {
     }
   };
 
-  // Load all documents when searching (progressive loading)
+  // Load all documents when searching (progressive), debounced to reduce churn
   useEffect(() => {
-    if (query.trim() && !searchInFolderOnly) {
-      // Load all documents for global search
-      loadAllDocuments();
-    }
+    if (!query.trim() || searchInFolderOnly) return;
+    const tid = setTimeout(() => { void loadAllDocuments(); }, 250);
+    return () => clearTimeout(tid);
   }, [query, searchInFolderOnly, loadAllDocuments]);
 
   const filteredDocs = useMemo(() => {
@@ -674,7 +680,7 @@ function DocumentsPageContent() {
                       </td>
                       <td className="p-3">—</td>
                       <td className="p-3">
-                        {hasRoleAtLeast('systemAdmin') ? (
+                        {hasRoleAtLeast('teamLead') ? (
                           (() => {
                             const key = p.join('/');
                             const ids = folderAccess[key] || [];
@@ -696,7 +702,7 @@ function DocumentsPageContent() {
                       </td>
                       <td className="p-3 text-right flex items-center justify-end gap-3">
                         <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); setPath(p); }}>Open</button>
-                        {hasRoleAtLeast('systemAdmin') && (
+                        {hasRoleAtLeast('teamLead') && (
                           <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); openShare(p); }}>Share</button>
                         )}
                       </td>
@@ -718,7 +724,7 @@ function DocumentsPageContent() {
                                 autoFocus
                               />
                             ) : (
-                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={hasRoleAtLeast('systemAdmin') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
+                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={hasRoleAtLeast('member') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
                             )}
                           </PopoverTrigger>
                           <PopoverContent align="start" className="w-96 p-4">
@@ -824,7 +830,7 @@ function DocumentsPageContent() {
                               autoFocus
                             />
                           ) : (
-                            <div className="font-medium line-clamp-2" onDoubleClick={hasRoleAtLeast('systemAdmin') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}>{d.title || d.name}</div>
+                            <div className="font-medium line-clamp-2" onDoubleClick={hasRoleAtLeast('member') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}>{d.title || d.name}</div>
                           )}
                         </Link>
                       </CardContent>

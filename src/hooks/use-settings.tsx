@@ -4,6 +4,15 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { apiFetch, getApiContext, onApiContextChange } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { DATE_FORMAT_STORAGE_KEY } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
+
+export type UserSettings = {
+  date_format: string;
+  accent_color: string;
+  dark_mode: boolean;
+  chat_filters_enabled: boolean;
+  ui_scale?: 'sm' | 'md' | 'lg';
+};
 
 export type OrgSettings = {
   date_format: string;
@@ -28,33 +37,51 @@ const DEFAULTS: OrgSettings = {
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(undefined);
 
-export function SettingsProvider({ children }: { children: React.ReactNode }) {
+export function SettingsProvider({
+  children,
+  bootstrapData
+}: {
+  children: React.ReactNode;
+  bootstrapData?: {
+    userSettings: UserSettings;
+    orgSettings: any;
+  }
+}) {
   const [settings, setSettings] = useState<OrgSettings>(DEFAULTS);
 
   const load = useCallback(async () => {
     try {
-      // Guard: require a session before calling
-      const sess = await supabase.auth.getSession();
-      if (!sess.data.session) return;
-      const s = await apiFetch<any>(`/me/settings`);
+      // Use bootstrap data if available, otherwise fall back to API call
+      let settingsData: any;
+      if (bootstrapData?.userSettings) {
+        settingsData = bootstrapData.userSettings;
+      } else {
+        // Guard: require a session before calling
+        const sess = await supabase.auth.getSession();
+        if (!sess.data.session) return;
+        settingsData = await apiFetch<any>(`/me/settings`);
+      }
+
       const next: OrgSettings = {
-        date_format: s.date_format || DEFAULTS.date_format,
-        accent_color: s.accent_color || DEFAULTS.accent_color,
-        dark_mode: !!s.dark_mode,
-        chat_filters_enabled: !!s.chat_filters_enabled,
+        date_format: settingsData.date_format || DEFAULTS.date_format,
+        accent_color: settingsData.accent_color || DEFAULTS.accent_color,
+        dark_mode: !!settingsData.dark_mode,
+        chat_filters_enabled: !!settingsData.chat_filters_enabled,
         ui_scale: undefined,
       };
+
       try { if (typeof window !== 'undefined') {
         const ui = window.localStorage.getItem('ui_scale');
         next.ui_scale = (ui === 'sm' || ui === 'md' || ui === 'lg') ? ui : DEFAULTS.ui_scale;
       }} catch {}
+
       setSettings(next);
       // Apply to UI immediately
       applyToDom(next);
       // Expose date format globally for formatAppDate/formatAppDateTime
       try { if (typeof window !== 'undefined') (window as any).__APP_DATE_FORMAT = next.date_format; } catch {}
     } catch {}
-  }, []);
+  }, [bootstrapData]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {

@@ -21,17 +21,29 @@ type SecurityContextValue = {
 const STORAGE_KEY = 'documind_ip_allowlist_v1';
 const SecurityContext = createContext<SecurityContextValue | undefined>(undefined);
 
-export function SecurityProvider({ children }: { children: React.ReactNode }) {
+export function SecurityProvider({
+  children,
+  bootstrapData
+}: {
+  children: React.ReactNode;
+  bootstrapData?: { orgSettings: { ip_allowlist_enabled: boolean; ip_allowlist_ips: string[] } }
+}) {
   const [policy, setPolicy] = useState<NetworkPolicy>({ enabled: false, ips: [] });
 
   const loadFromServer = useCallback(async () => {
     try {
-      const { orgId } = getApiContext();
-      if (!orgId) return;
-      const s = await apiFetch<any>(`/orgs/${orgId}/settings`);
-      setPolicy({ enabled: !!s.ip_allowlist_enabled, ips: Array.isArray(s.ip_allowlist_ips) ? s.ip_allowlist_ips : [] });
+      // Use bootstrap data if available, otherwise fall back to API call
+      if (bootstrapData?.orgSettings) {
+        const s = bootstrapData.orgSettings;
+        setPolicy({ enabled: !!s.ip_allowlist_enabled, ips: Array.isArray(s.ip_allowlist_ips) ? s.ip_allowlist_ips : [] });
+      } else {
+        const { orgId } = getApiContext();
+        if (!orgId) return;
+        const s = await apiFetch<any>(`/orgs/${orgId}/settings`);
+        setPolicy({ enabled: !!s.ip_allowlist_enabled, ips: Array.isArray(s.ip_allowlist_ips) ? s.ip_allowlist_ips : [] });
+      }
     } catch {}
-  }, []);
+  }, [bootstrapData]);
 
   useEffect(() => { void loadFromServer(); }, [loadFromServer]);
   useEffect(() => {

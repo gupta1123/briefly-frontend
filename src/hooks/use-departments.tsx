@@ -2,7 +2,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { apiFetch, getApiContext, onApiContextChange } from '@/lib/api';
 
-export type Department = { id: string; org_id: string; name: string; lead_user_id?: string | null; color?: string | null };
+export type Department = {
+  id: string;
+  org_id: string;
+  name: string;
+  lead_user_id?: string | null;
+  color?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  // Bootstrap endpoint includes these membership flags
+  is_member?: boolean;
+  is_lead?: boolean;
+};
 
 type Ctx = {
   departments: Department[];
@@ -16,7 +27,13 @@ const DepartmentsContext = createContext<Ctx | undefined>(undefined);
 
 const LS_KEY = 'briefly_selected_department_id_v1';
 
-export function DepartmentsProvider({ children }: { children: React.ReactNode }) {
+export function DepartmentsProvider({
+  children,
+  bootstrapData
+}: {
+  children: React.ReactNode;
+  bootstrapData?: { departments: Department[] }
+}) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string | null>(null);
@@ -26,44 +43,37 @@ export function DepartmentsProvider({ children }: { children: React.ReactNode })
     if (!orgId) return;
     setLoading(true);
     try {
-      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments`);
-      console.log('Departments loaded:', list?.map(d => ({ id: d.id, name: d.name })));
+      // Use bootstrap data if available, otherwise fetch from API with includeMine=1
+      let list: Department[];
+      if (bootstrapData?.departments) {
+        list = bootstrapData.departments;
+        console.log('Using bootstrap departments:', list?.map(d => ({ id: d.id, name: d.name, is_member: d.is_member, is_lead: d.is_lead })));
+      } else {
+        list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?includeMine=1`);
+        console.log('Departments loaded with membership flags:', list?.map(d => ({ id: d.id, name: d.name, is_member: d.is_member, is_lead: d.is_lead })));
+      }
       setDepartments(list || []);
-      
-      // Initialize selection from localStorage or user's department
+
+      // Initialize selection from localStorage or user's department membership flags
       const saved = typeof window !== 'undefined' ? window.localStorage.getItem(LS_KEY) : null;
-      
+
       // Only auto-select if no department is currently selected
       if (!selectedDepartmentId) {
         if (saved && (list || []).some(d => d.id === saved)) {
           console.log('Using saved department selection:', saved);
           setSelectedDepartmentId(saved);
         } else {
-          // Try to determine user's primary department from their memberships
-          try {
-            const userDepts = await apiFetch<{department_id: string, role: string}[]>(`/orgs/${orgId}/user/departments`);
-            console.log('User departments:', userDepts);
-            if (userDepts && userDepts.length > 0) {
-              // Prefer department where user is a lead, then first membership
-              const leadDept = userDepts.find(d => d.role === 'lead');
-              const primaryDeptId = leadDept ? leadDept.department_id : userDepts[0].department_id;
-              console.log('Selected primary department:', primaryDeptId);
-              
-              // Verify this department exists in the list
-              if ((list || []).some(d => d.id === primaryDeptId)) {
-                setSelectedDepartmentId(primaryDeptId);
-              } else if ((list || []).length) {
-                console.log('Primary department not found, using first available');
-                setSelectedDepartmentId(list[0].id);
-              }
-            } else if ((list || []).length) {
-              console.log('No user departments, using first available');
-              setSelectedDepartmentId(list[0].id);
-            }
-          } catch (error) {
-            console.warn('Failed to fetch user departments:', error);
-            // Fallback to first department if user departments query fails
-            if ((list || []).length) setSelectedDepartmentId(list[0].id);
+          // Use membership flags from bootstrap or API response
+          const memberDepts = (list || []).filter(d => d.is_member);
+          if (memberDepts.length > 0) {
+            // Prefer department where user is a lead, then first membership
+            const leadDept = memberDepts.find(d => d.is_lead);
+            const primaryDeptId = leadDept ? leadDept.id : memberDepts[0].id;
+            console.log('Selected primary department from membership flags:', primaryDeptId);
+            setSelectedDepartmentId(primaryDeptId);
+          } else if ((list || []).length) {
+            console.log('No department memberships, using first available');
+            setSelectedDepartmentId(list[0].id);
           }
         }
       } else {
@@ -76,7 +86,7 @@ export function DepartmentsProvider({ children }: { children: React.ReactNode })
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [bootstrapData]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => onApiContextChange(() => { setTimeout(() => void refresh(), 100); }), [refresh]);

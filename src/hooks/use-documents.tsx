@@ -43,11 +43,17 @@ const DocumentsContext = createContext<DocumentsContextValue | undefined>(undefi
 export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   const [documents, setDocuments] = useState<StoredDocument[]>([]);
   const [folders, setFolders] = useState<string[][]>([]);
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { log } = useAudit();
   const { selectedDepartmentId } = useDepartments();
 
-  const getOrgId = () => getApiContext().orgId || '';
+  console.log('DocumentsProvider render - user:', user, 'isAuthenticated:', isAuthenticated, 'documents.length:', documents.length);
+
+  const getOrgId = () => {
+    const apiContext = getApiContext();
+    console.log('DocumentsProvider getApiContext:', apiContext);
+    return apiContext.orgId || '';
+  };
 
   const deriveFolders = useCallback((docs: StoredDocument[], prevFolders: string[][]) => {
     const derived = new Set<string>(prevFolders.map(p => p.join('/')));
@@ -66,17 +72,35 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     const orgId = getOrgId();
-    if (!orgId || loadingRef.current) return;
-    
+    console.log('DocumentsProvider refresh called, orgId:', orgId, 'loadingRef:', loadingRef.current);
+
+    if (!orgId || loadingRef.current) {
+      console.log('DocumentsProvider refresh aborted - no orgId or already loading');
+      return;
+    }
+
     loadingRef.current = true;
     setIsLoading(true);
-    
+
     try {
       // Include department filter if user has selected a specific department
       const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
-      const list = await apiFetch<any[]>(`/orgs/${orgId}/documents?limit=50${deptParam}`);
-      const revived = (list || []).map((d) => ({ 
-        ...d, 
+      console.log('DocumentsProvider fetching from API:', `/orgs/${orgId}/documents?limit=50${deptParam}`);
+      const response = await apiFetch<any>(`/orgs/${orgId}/documents?limit=50${deptParam}`);
+      console.log('DocumentsProvider API response:', response);
+
+      // Handle error responses
+      if (response && typeof response === 'object' && 'error' in response) {
+        console.error('Documents API error:', response.error);
+        throw new Error(response.error || 'Failed to fetch documents');
+      }
+
+      // Ensure we have an array to work with
+      const list = Array.isArray(response) ? response : [];
+      console.log('DocumentsProvider processing', list.length, 'documents');
+
+      const revived = list.map((d) => ({
+        ...d,
         uploadedAt: new Date(d.uploadedAt || d.uploaded_at),
         // Ensure both departmentId and department_id are available for lookup
         departmentId: d.departmentId || d.department_id,
@@ -155,9 +179,9 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   }, [deriveFolders, hasLoadedAll, selectedDepartmentId]);
 
   // Load documents on mount - but only once
-  useEffect(() => { 
-    if (!isLoading && documents.length === 0) {
-      void refresh(); 
+  useEffect(() => {
+    if (documents.length === 0 && !loadingRef.current) {
+      void refresh();
     }
   }, [refresh]);
 

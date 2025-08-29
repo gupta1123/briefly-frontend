@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiFetch, getApiContext, onApiContextChange } from '@/lib/api';
 import { Check, X } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Human-friendly permission labels (keep keys in sync with backend)
 const PERMISSIONS: { key: string; label: string; group: string }[] = [
@@ -30,6 +31,21 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
 type Department = { id: string; name: string };
 type OrgUser = { userId: string; displayName?: string | null };
 
+function PermissionSkeleton() {
+  return (
+    <div className="flex items-center justify-between rounded-md border px-3 py-2">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-4 w-4 rounded" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+      <div className="flex items-center gap-1">
+        <Skeleton className="h-3 w-3 rounded-full" />
+        <Skeleton className="h-3 w-16" />
+      </div>
+    </div>
+  );
+}
+
 export default function OverridesManagement() {
   const [users, setUsers] = React.useState<OrgUser[]>([]);
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -38,6 +54,8 @@ export default function OverridesManagement() {
   const [overrides, setOverrides] = React.useState<Record<string, boolean>>({});
   const [pending, setPending] = React.useState<Record<string, boolean>>({});
   const [loading, setLoading] = React.useState(false);
+  const [usersLoading, setUsersLoading] = React.useState(false);
+  const [deptsLoading, setDeptsLoading] = React.useState(false);
   const [effective, setEffective] = React.useState<Record<string, boolean>>({});
   const [dirty, setDirty] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -50,10 +68,17 @@ export default function OverridesManagement() {
 
   const refresh = React.useCallback(async () => {
     if (!orgId) return;
-    const u = await apiFetch<any[]>(`/orgs/${orgId}/users`);
-    setUsers((u || []).map(r => ({ userId: r.userId, displayName: r.displayName || r.app_users?.display_name || '' })));
-    const d = await apiFetch<any[]>(`/orgs/${orgId}/departments`);
-    setDepartments((d || []).map((x:any) => ({ id: x.id, name: x.name })));
+    setUsersLoading(true);
+    setDeptsLoading(true);
+    try {
+      const u = await apiFetch<any[]>(`/orgs/${orgId}/users`);
+      setUsers((u || []).map(r => ({ userId: r.userId, displayName: r.displayName || r.app_users?.display_name || '' })));
+      const d = await apiFetch<any[]>(`/orgs/${orgId}/departments?includeMine=1`);
+      setDepartments((d || []).map((x:any) => ({ id: x.id, name: x.name })));
+    } finally {
+      setUsersLoading(false);
+      setDeptsLoading(false);
+    }
   }, [orgId]);
 
   React.useEffect(() => { void refresh(); }, [refresh]);
@@ -120,23 +145,71 @@ export default function OverridesManagement() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-2">
-          <Select value={selectedUser} onValueChange={v => setSelectedUser(v)}>
-            <SelectTrigger className="w-[260px]"><SelectValue placeholder="Select user" /></SelectTrigger>
+          <Select value={selectedUser} onValueChange={v => setSelectedUser(v)} disabled={usersLoading}>
+            <SelectTrigger className="w-[260px]">
+              {usersLoading ? (
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+              ) : (
+                <SelectValue placeholder="Select user" />
+              )}
+            </SelectTrigger>
             <SelectContent>
-              {users.map(u => (<SelectItem key={u.userId} value={u.userId}>{u.displayName || u.userId}</SelectItem>))}
+              {usersLoading ? (
+                <div className="p-2">
+                  <Skeleton className="h-8 w-full mb-2" />
+                  <Skeleton className="h-8 w-full mb-2" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : (
+                users.map(u => (<SelectItem key={u.userId} value={u.userId}>{u.displayName || u.userId}</SelectItem>))
+              )}
             </SelectContent>
           </Select>
-          <Select value={selectedDept} onValueChange={v => setSelectedDept(v as any)}>
-            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Scope" /></SelectTrigger>
+          <Select value={selectedDept} onValueChange={v => setSelectedDept(v as any)} disabled={deptsLoading}>
+            <SelectTrigger className="w-[220px]">
+              {deptsLoading ? (
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              ) : (
+                <SelectValue placeholder="Scope" />
+              )}
+            </SelectTrigger>
             <SelectContent>
-              <SelectItem value="org">Organization (all departments)</SelectItem>
-              {departments.map(d => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
+              {deptsLoading ? (
+                <div className="p-2">
+                  <Skeleton className="h-8 w-full mb-2" />
+                  <Skeleton className="h-8 w-full mb-2" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : (
+                <>
+                  <SelectItem value="org">Organization (all departments)</SelectItem>
+                  {departments.map(d => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
+                </>
+              )}
             </SelectContent>
           </Select>
           <Button variant="outline" onClick={loadOverrides}>Reload</Button>
         </div>
 
-        {loading ? <div className="text-sm text-muted-foreground">Loading…</div> : (
+        {loading ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-9 w-32" />
+              <Skeleton className="h-9 w-20" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {PERMISSIONS.map(p => (
+                <PermissionSkeleton key={p.key} />
+              ))}
+            </div>
+          </div>
+        ) : (
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">Effective access (read‑only) reflects Role → Org override → Team override precedence.</div>
             <div className="flex items-center gap-2">

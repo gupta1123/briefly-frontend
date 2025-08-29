@@ -27,7 +27,7 @@ export default function DepartmentsManagement() {
     if (!orgId) return;
     setLoading(true);
     try {
-      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments`);
+      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?includeMine=1`);
       setDepartments(list || []);
       if (!selected && list?.length) setSelected(list[0].id);
       const users = await apiFetch<any[]>(`/orgs/${orgId}/users`);

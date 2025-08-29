@@ -1,13 +1,14 @@
 "use client";
 
-import * as React from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Mail, Trash2 } from 'lucide-react';
+import { Mail, Trash2, Lock } from 'lucide-react';
 import { apiFetch, getApiContext } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useUsers } from '@/hooks/use-users';
 import { useEffect } from 'react';
@@ -22,30 +23,91 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+
+function UserSkeleton() {
+  return (
+    <tr>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="flex items-center">
+          <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="ml-4 space-y-1">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <Skeleton className="h-6 w-16 rounded-full" />
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <Skeleton className="h-4 w-20" />
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <Skeleton className="h-8 w-16" />
+      </td>
+    </tr>
+  );
+}
 
 export default function UsersManagement() {
   const { users, addUser, removeUser, updateUser } = useUsers();
   const { toast } = useToast();
-  const [form, setForm] = React.useState({ 
-    username: '', 
-    email: '', 
-    role: 'member', 
-    password: '', 
-    amount: 3, 
-    unit: 'days' as 'minutes' | 'hours' | 'days' 
+  const { hasRoleAtLeast, bootstrapData } = useAuth();
+  const isAdmin = hasRoleAtLeast('systemAdmin');
+  const isTeamLead = hasRoleAtLeast('teamLead');
+  const [form, setForm] = React.useState({
+    username: '',
+    email: '',
+    role: 'member',
+    password: '',
+    amount: 3,
+    unit: 'days' as 'minutes' | 'hours' | 'days'
   });
   const [inviting, setInviting] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [orgUsers, setOrgUsers] = React.useState<any[]>([]);
+
+  // Password change modal state
+  const [passwordModal, setPasswordModal] = React.useState<{
+    isOpen: boolean;
+    user: any;
+  }>({ isOpen: false, user: null });
+  const [passwordForm, setPasswordForm] = React.useState({
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [changingPassword, setChangingPassword] = React.useState(false);
+
+  // Note: Backend already filters users for team leads, no frontend filtering needed
 
   // Load org users from backend for admin/manager visibility
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const orgId = getApiContext().orgId || '';
-        if (!orgId) return;
+        if (!orgId) {
+          setLoading(false);
+          return;
+        }
         const list = await apiFetch<any[]>(`/orgs/${orgId}/users`);
-        // Replace local list with authoritative server rows for display purposes
+        setOrgUsers(list || []);
+
+        // The backend already filters users for team leads, so no additional filtering needed
+        const filteredList = list;
+
         // Map to the directory shape while keeping real values for table
-        const mapped = list.map(u => ({
+        const mapped = filteredList.map(u => ({
           username: u.userId, // keep true id to address DELETE /users/:userId
           displayName: u.displayName || u.app_users?.display_name || '',
           email: u.email || '',
@@ -56,7 +118,11 @@ export default function UsersManagement() {
         }));
         // Reset then add
         mapped.forEach(m => addUser(m));
-      } catch {}
+      } catch (error) {
+        console.error('Error loading users:', error);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [addUser]);
 
@@ -72,7 +138,11 @@ export default function UsersManagement() {
       const orgId = getApiContext().orgId || '';
       if (!orgId) return;
       const list = await apiFetch<any[]>(`/orgs/${orgId}/users`);
-      const mapped = (list || []).map(u => ({
+
+      // The backend already filters users for team leads, so no additional filtering needed
+      const filteredList = list;
+
+      const mapped = filteredList.map(u => ({
         username: u.userId,
         displayName: u.displayName || u.app_users?.display_name || '',
         email: u.email || '',
@@ -141,12 +211,76 @@ export default function UsersManagement() {
       }
     } catch (e: any) {
       const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to create user';
-      toast({ 
-        title: 'Could not create user', 
-        description: msg, 
-        variant: 'destructive' as any 
+      toast({
+        title: 'Could not create user',
+        description: msg,
+        variant: 'destructive' as any
       });
       return; // Don't clear the form on failure
+    }
+  };
+
+  const onChangePassword = async () => {
+    if (!passwordModal.user) return;
+
+    const { newPassword, confirmPassword } = passwordForm;
+
+    // Validation
+    if (!newPassword.trim()) {
+      toast({
+        title: 'Password required',
+        description: 'Please enter a new password.',
+        variant: 'destructive' as any
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        title: 'Password too short',
+        description: 'Password must be at least 6 characters.',
+        variant: 'destructive' as any
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: 'Passwords do not match',
+        description: 'Please make sure both password fields match.',
+        variant: 'destructive' as any
+      });
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      const orgId = getApiContext().orgId || '';
+      if (!orgId) throw new Error('Organization context not found');
+
+      await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(passwordModal.user.username)}`, {
+        method: 'PATCH',
+        body: { password: newPassword },
+      });
+
+      toast({
+        title: 'Password updated',
+        description: `Password for ${passwordModal.user.email || passwordModal.user.username} has been changed successfully.`,
+      });
+
+      // Reset form and close modal
+      setPasswordForm({ newPassword: '', confirmPassword: '' });
+      setPasswordModal({ isOpen: false, user: null });
+
+    } catch (e: any) {
+      const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to change password';
+      toast({
+        title: 'Could not change password',
+        description: msg,
+        variant: 'destructive' as any
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -180,22 +314,27 @@ export default function UsersManagement() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Team Mates</h2>
+          <h2 className="text-2xl font-bold">Team Members</h2>
           <p className="text-sm text-muted-foreground">
-            Invite people and assign roles per team.
+            {isAdmin
+              ? "Invite people and assign roles per team."
+              : "View members of your teams."
+            }
           </p>
         </div>
-        <Button 
-          onClick={() => setInviting(true)}
-          className="bg-purple-600 hover:bg-purple-700"
-        >
-          <Mail className="w-4 h-4 mr-2" />
-          Invite
-        </Button>
+        {isAdmin && (
+          <Button 
+            onClick={() => setInviting(true)}
+            className="bg-purple-600 hover:bg-purple-700"
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            Invite
+          </Button>
+        )}
       </div>
 
       {/* Invite User Form */}
-      {inviting && (
+      {isAdmin && inviting && (
         <Card>
           <CardHeader>
             <CardTitle>Invite New User</CardTitle>
@@ -217,7 +356,7 @@ export default function UsersManagement() {
                   <SelectValue placeholder="Role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="teamLead">Team Lead</SelectItem>
+                  {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
                   <SelectItem value="member">Member</SelectItem>
                   <SelectItem value="guest">Guest (Temp)</SelectItem>
                 </SelectContent>
@@ -288,7 +427,17 @@ export default function UsersManagement() {
                 </tr>
               </thead>
               <tbody>
-                {users.map(u => (
+                {loading ? (
+                  // Show skeleton loaders while loading
+                  <>
+                    <UserSkeleton />
+                    <UserSkeleton />
+                    <UserSkeleton />
+                    <UserSkeleton />
+                    <UserSkeleton />
+                  </>
+                ) : (
+                  users.map(u => (
                   <tr key={u.username} className="border-b">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
@@ -314,88 +463,109 @@ export default function UsersManagement() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <Select
-                        value={u.role as any}
-                        onValueChange={async (v) => {
-                          try {
-                            const orgId = getApiContext().orgId || '';
-                            if (orgId) {
-                              await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, {
-                                method: 'PATCH',
-                                body: { role: v === 'systemAdmin' ? 'orgAdmin' : v },
+                      {isAdmin ? (
+                        <Select
+                          value={u.role as any}
+                          onValueChange={async (v) => {
+                            try {
+                              const orgId = getApiContext().orgId || '';
+                              if (orgId) {
+                                await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, {
+                                  method: 'PATCH',
+                                  body: { role: v === 'systemAdmin' ? 'orgAdmin' : v },
+                                });
+                              }
+                              updateUser(u.username, prev => ({ ...prev, role: v as any }));
+                              toast({ 
+                                title: 'Role updated', 
+                                description: `${u.email || u.username} is now ${getRoleLabel(v)}.` 
+                              });
+                            } catch (e: any) {
+                              const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to update role';
+                              toast({ 
+                                title: 'Could not update role', 
+                                description: msg, 
+                                variant: 'destructive' as any 
                               });
                             }
-                            updateUser(u.username, prev => ({ ...prev, role: v as any }));
-                            toast({ 
-                              title: 'Role updated', 
-                              description: `${u.email || u.username} is now ${getRoleLabel(v)}.` 
-                            });
-                          } catch (e: any) {
-                            const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to update role';
-                            toast({ 
-                              title: 'Could not update role', 
-                              description: msg, 
-                              variant: 'destructive' as any 
-                            });
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-[140px]" disabled={u.role === 'systemAdmin'}>
-                          <SelectValue placeholder="Role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="systemAdmin">System Administrator</SelectItem>
-                          <SelectItem value="teamLead">Team Lead</SelectItem>
-                          <SelectItem value="member">Member</SelectItem>
-                          <SelectItem value="guest">Guest</SelectItem>
-                        </SelectContent>
-                      </Select>
+                          }}
+                        >
+                          <SelectTrigger className="w-[140px]" disabled={u.role === 'systemAdmin'}>
+                            <SelectValue placeholder="Role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {isAdmin && <SelectItem value="systemAdmin">System Administrator</SelectItem>}
+                            {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
+                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="guest">Guest</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="text-sm">{getRoleLabel(u.role as any)}</div>
+                      )}
                     </td>
                     <td className="p-4 text-right">
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={u.role === 'systemAdmin'}>
-                            <Trash2 className="w-4 h-4" />
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Change Password Button */}
+                        {(isAdmin || isTeamLead) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-blue-600 hover:text-blue-700"
+                            onClick={() => setPasswordModal({ isOpen: true, user: u })}
+                            disabled={u.role === 'systemAdmin'}
+                          >
+                            <Lock className="w-4 h-4" />
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remove user from organization?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will revoke access for {u.email || u.username}. This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction asChild>
-                              <Button 
-                                size="sm" 
-                                variant="destructive" 
-                                disabled={u.role === 'systemAdmin'}
-                                onClick={async () => {
-                                  try {
-                                    const orgId = getApiContext().orgId || '';
-                                    if (orgId) await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
-                                  } catch {}
-                                  removeUser(u.username);
-                                  toast({ 
-                                    title: 'User removed', 
-                                    description: `${u.email || u.username} no longer has access.` 
-                                  });
-                                }}
-                              >
-                                Delete
-                              </Button>
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        )}
+
+                        {/* Delete Button */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={!isAdmin || u.role === 'systemAdmin'}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remove user from organization?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will revoke access for {u.email || u.username}. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction asChild>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={u.role === 'systemAdmin'}
+                                  onClick={async () => {
+                                    try {
+                                      const orgId = getApiContext().orgId || '';
+                                      if (orgId) await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
+                                    } catch {}
+                                    removeUser(u.username);
+                                    toast({
+                                      title: 'User removed',
+                                      description: `${u.email || u.username} no longer has access.`
+                                    });
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
-            {users.length === 0 && (
+            {!loading && users.length === 0 && (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 No users yet. Invite your first team member to get started.
               </div>
@@ -403,6 +573,78 @@ export default function UsersManagement() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Change Password Modal */}
+      <Dialog
+        open={passwordModal.isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPasswordModal({ isOpen: false, user: null });
+            setPasswordForm({ newPassword: '', confirmPassword: '' });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              Change the password for {passwordModal.user?.email || passwordModal.user?.username}.
+              The user will need to use this new password to sign in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                placeholder="Enter new password"
+                value={passwordForm.newPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                className="mt-1"
+              />
+              {passwordForm.newPassword && passwordForm.newPassword.length < 6 && (
+                <p className="text-[11px] text-destructive mt-1">Minimum 6 characters.</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium">Confirm Password</label>
+              <Input
+                type="password"
+                placeholder="Confirm new password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                className="mt-1"
+              />
+              {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && (
+                <p className="text-[11px] text-destructive mt-1">Passwords do not match.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPasswordModal({ isOpen: false, user: null });
+                setPasswordForm({ newPassword: '', confirmPassword: '' });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={onChangePassword}
+              disabled={
+                changingPassword ||
+                !passwordForm.newPassword.trim() ||
+                !passwordForm.confirmPassword.trim() ||
+                passwordForm.newPassword !== passwordForm.confirmPassword ||
+                passwordForm.newPassword.length < 6
+              }
+            >
+              {changingPassword ? 'Updating...' : 'Update Password'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -17,35 +17,46 @@ const DEFAULT_CATEGORIES = [
 
 const CategoriesContext = createContext<CategoriesContextValue | undefined>(undefined);
 
-export function CategoriesProvider({ children }: { children: React.ReactNode }) {
+export function CategoriesProvider({
+  children,
+  bootstrapData
+}: {
+  children: React.ReactNode;
+  bootstrapData?: { orgSettings: { categories: string[] } }
+}) {
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [isLoading, setIsLoading] = useState(false);
 
   const loadCategories = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Guard: require a session before calling
-      const sess = await supabase.auth.getSession();
-      if (!sess.data.session) {
-        setCategories(DEFAULT_CATEGORIES);
-        return;
-      }
+      // Use bootstrap data if available, otherwise fall back to API call
+      if (bootstrapData?.orgSettings?.categories) {
+        setCategories(bootstrapData.orgSettings.categories);
+      } else {
+        // Guard: require a session before calling
+        const sess = await supabase.auth.getSession();
+        if (!sess.data.session) {
+          setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
 
-      const orgId = getApiContext().orgId;
-      if (!orgId) {
-        setCategories(DEFAULT_CATEGORIES);
-        return;
-      }
+        const orgId = getApiContext().orgId;
+        if (!orgId) {
+          setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
 
-      const orgSettings = await apiFetch<any>(`/orgs/${orgId}/settings`);
-      setCategories(orgSettings.categories || DEFAULT_CATEGORIES);
+        const orgSettings = await apiFetch<any>(`/orgs/${orgId}/settings`);
+        setCategories(orgSettings.categories || DEFAULT_CATEGORIES);
+      }
     } catch (error) {
       console.warn('Failed to load categories, using defaults:', error);
       setCategories(DEFAULT_CATEGORIES);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [bootstrapData]);
 
   useEffect(() => { 
     void loadCategories(); 

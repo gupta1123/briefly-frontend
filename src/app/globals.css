@@ -50,39 +50,61 @@
     --ui-scale: 1;
   }
   .dark {
-    /* Deep neutral dark (not blue) */
-    --background: 0 0% 7%;
+    /* Premium Black Theme - Sophisticated dark mode inspired by modern enterprise apps */
+
+    /* Deep background hierarchy for premium feel */
+    --background: 0 0% 3.5%;           /* Deepest background - main app backdrop */
     --foreground: 210 40% 98%;
-    --card: 0 0% 11%;
+
+    --card: 0 0% 6.5%;                 /* Cards sit above main background */
     --card-foreground: 210 40% 98%;
-    --popover: 0 0% 10%;
+
+    --popover: 0 0% 5.5%;              /* Popovers slightly different from cards */
     --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 0 0% 14%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 0 0% 14%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 0 0% 18%;
-    --input: 0 0% 20%;
-    --ring: 217 91% 60%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --sidebar-background: 0 0% 9%;
+
+    /* Primary accent - sophisticated blue with premium feel */
+    --primary: 217 32% 56%;            /* Less saturated, more refined */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary surfaces - subtle elevation */
+    --secondary: 0 0% 8.5%;            /* Slightly elevated from card background */
+    --secondary-foreground: 210 40% 95%;
+
+    /* Muted elements - for subtle distinctions */
+    --muted: 0 0% 10%;                 /* Muted surfaces */
+    --muted-foreground: 215 15% 65%;   /* Softer muted text */
+
+    /* Accent surfaces - interactive elements */
+    --accent: 0 0% 12%;                /* Hover/active states */
+    --accent-foreground: 210 40% 95%;
+
+    /* Error states - refined destructive color */
+    --destructive: 0 75% 55%;          /* Less aggressive red */
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders and inputs - subtle but visible */
+    --border: 0 0% 15%;                /* Subtle borders for definition */
+    --input: 0 0% 8.5%;                /* Input backgrounds match secondary */
+
+    /* Focus rings - premium feel */
+    --ring: 217 32% 56%;               /* Matches primary but refined */
+
+    /* Chart colors - sophisticated palette */
+    --chart-1: 217 32% 56%;            /* Primary blue */
+    --chart-2: 160 45% 50%;            /* Green */
+    --chart-3: 30 85% 60%;             /* Orange */
+    --chart-4: 280 55% 65%;            /* Purple */
+    --chart-5: 340 70% 65%;            /* Pink */
+
+    /* Sidebar - distinct from main background but cohesive */
+    --sidebar-background: 0 0% 4.5%;   /* Slightly lighter than main background */
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222.2 47.4% 11.2%;
-    --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 0 0% 14%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-primary: 217 32% 56%;    /* Consistent with primary */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 9%;         /* Sidebar hover states */
+    --sidebar-accent-foreground: 210 40% 95%;
+    --sidebar-border: 0 0% 12%;        /* Subtle sidebar borders */
+    --sidebar-ring: 217 32% 56%;
   }
   /* Theme-specific overrides placed AFTER .dark so they win by order; also using higher specificity */
   [data-theme='slate'] {
@@ -123,41 +145,61 @@
     --sidebar-ring: 215 16% 47%;
   }
   .dark[data-theme='slate'] {
-    /* Dark Slate */
-    --background: 215 22% 14%;
+    /* Premium Slate Dark - Sophisticated slate-based dark mode */
+
+    /* Deep slate background hierarchy */
+    --background: 215 25% 4.5%;         /* Deep slate background */
     --foreground: 210 40% 98%;
-    --card: 215 22% 16%;
+
+    --card: 215 20% 7.5%;               /* Slate cards with subtle warmth */
     --card-foreground: 210 40% 98%;
-    --popover: 215 22% 16%;
+
+    --popover: 215 20% 6.5%;            /* Slightly different from cards */
     --popover-foreground: 210 40% 98%;
-    --primary: 215 20% 65%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 215 18% 20%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 215 18% 18%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 215 18% 18%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62% 35%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 215 18% 22%;
-    --input: 215 18% 22%;
-    --ring: 215 20% 65%;
-    /* Charts */
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    /* Sidebar */
-    --sidebar-background: 215 22% 16%;
+
+    /* Primary accent - refined slate blue */
+    --primary: 215 35% 60%;             /* Less saturated slate blue */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary surfaces */
+    --secondary: 215 18% 9.5%;          /* Elevated slate surface */
+    --secondary-foreground: 210 40% 95%;
+
+    /* Muted elements */
+    --muted: 215 15% 11%;               /* Muted slate */
+    --muted-foreground: 215 15% 65%;
+
+    /* Accent surfaces */
+    --accent: 215 15% 13%;              /* Slate accent */
+    --accent-foreground: 210 40% 95%;
+
+    /* Error states */
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders and inputs */
+    --border: 215 15% 16%;              /* Subtle slate borders */
+    --input: 215 18% 9.5%;
+
+    /* Focus rings */
+    --ring: 215 35% 60%;
+
+    /* Charts - slate-inspired palette */
+    --chart-1: 215 35% 60%;             /* Slate blue */
+    --chart-2: 160 45% 50%;             /* Green */
+    --chart-3: 30 85% 60%;              /* Orange */
+    --chart-4: 280 55% 65%;             /* Purple */
+    --chart-5: 340 70% 65%;             /* Pink */
+
+    /* Sidebar - cohesive with main theme */
+    --sidebar-background: 215 25% 5.5%;  /* Slightly lighter slate */
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 215 20% 65%;
-    --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 215 18% 20%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 215 18% 22%;
-    --sidebar-ring: 215 20% 65%;
+    --sidebar-primary: 215 35% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 18% 10.5%;    /* Slate sidebar hover */
+    --sidebar-accent-foreground: 210 40% 95%;
+    --sidebar-border: 215 15% 13%;      /* Subtle slate sidebar borders */
+    --sidebar-ring: 215 35% 60%;
   }
   /* Dark mode: tone the sidebar and card elevation for better separation */
   .dark {
@@ -238,5 +280,86 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Premium Dark Mode Enhancements */
+
+  /* Subtle gradients for cards and surfaces */
+  .dark .card-premium {
+    background: linear-gradient(to bottom right, hsl(var(--card) / 0.95), hsl(var(--card) / 0.9));
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.24);
+  }
+
+  .dark .sidebar-premium {
+    background: linear-gradient(to bottom, hsl(var(--sidebar-background)), hsl(var(--sidebar-background) / 0.95));
+  }
+
+  /* Refined hover states */
+  .dark .hover-premium {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark .hover-premium:hover {
+    box-shadow:
+      0 4px 6px rgba(0, 0, 0, 0.12),
+      0 2px 4px rgba(0, 0, 0, 0.08);
+    transform: translateY(-1px);
+  }
+
+  /* Subtle borders for depth */
+  .dark .border-premium {
+    @apply border-border/60;
+  }
+
+  .dark .border-premium:hover {
+    @apply border-border/80;
+  }
+
+  /* Premium input styling */
+  .dark input:focus,
+  .dark textarea:focus,
+  .dark select:focus {
+    @apply ring-2 ring-ring/30 ring-offset-0 ring-offset-background;
+  }
+
+  /* Enhanced button states */
+  .dark button:hover:not(:disabled) {
+    transform: translateY(-0.5px);
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Premium scrollbar */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    @apply bg-muted/30;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-border/60 rounded-full;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border/80;
+  }
+
+  /* Subtle backdrop blur effects */
+  .dark .backdrop-premium {
+    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  /* Premium focus rings */
+  .dark .focus-premium:focus-visible {
+    @apply outline-none ring-2 ring-ring/40 ring-offset-2 ring-offset-background;
   }
 }

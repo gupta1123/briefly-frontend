@@ -40,28 +40,45 @@ export function DashboardStatsProvider({ children }: { children: React.ReactNode
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastFetched, setLastFetched] = useState<number>(0);
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (force = false) => {
     try {
       const { orgId } = getApiContext();
       if (!orgId) return;
-      
+
+      const now = Date.now();
+      const cacheDuration = 5 * 60 * 1000; // 5 minutes cache
+
+      // Skip if recently fetched and not forced
+      if (!force && now - lastFetched < cacheDuration && stats) {
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       const data = await apiFetch<DashboardStats>(`/orgs/${orgId}/dashboard/stats`);
       setStats(data);
+      setLastFetched(now);
     } catch (e) {
       setError((e as Error).message || 'Failed to load stats');
       setStats(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [stats, lastFetched]);
 
-  useEffect(() => { void fetchStats(); }, [fetchStats]);
+  const refetch = useCallback(() => fetchStats(true), [fetchStats]);
+
+  useEffect(() => {
+    // Initial load with slight delay to not block page render
+    const timer = setTimeout(() => void fetchStats(), 100);
+    return () => clearTimeout(timer);
+  }, [fetchStats]);
+
   useEffect(() => onApiContextChange(() => { void fetchStats(); }), [fetchStats]);
 
-  const value = useMemo(() => ({ stats, isLoading, error, refetch: fetchStats }), [stats, isLoading, error, fetchStats]);
+  const value = useMemo(() => ({ stats, isLoading, error, refetch }), [stats, isLoading, error, refetch]);
   return <DashboardStatsContext.Provider value={value}>{children}</DashboardStatsContext.Provider>;
 }
 

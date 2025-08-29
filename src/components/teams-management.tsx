@@ -22,6 +22,56 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+
+function TeamSkeleton() {
+  return (
+    <Card className="relative">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-10 h-10 rounded-full" />
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+        <div className="flex items-center gap-1 mt-3">
+          <Skeleton className="h-6 w-6 rounded-full" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+        <div className="flex items-center gap-1 mt-4">
+          <Skeleton className="h-8 w-8" />
+          <Skeleton className="h-8 w-8" />
+          <Skeleton className="h-8 w-8" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MemberSkeleton() {
+  return (
+    <div className="flex items-center justify-between p-3 border-b">
+      <div className="flex items-center gap-3">
+        <Skeleton className="w-8 h-8 rounded-full" />
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-48" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-6 w-16 rounded-full" />
+        <Skeleton className="h-8 w-8" />
+      </div>
+    </div>
+  );
+}
 
 type Department = { 
   id: string; 
@@ -64,6 +114,7 @@ export default function TeamsManagement() {
   const [editColor, setEditColor] = React.useState<string>('purple');
   const [selected, setSelected] = React.useState<string | null>(null);
   const [members, setMembers] = React.useState<{ userId: string; role: 'lead'|'member'; displayName?: string|null; email?: string|null }[]>([]);
+  const [membersLoading, setMembersLoading] = React.useState(false);
   const [userQuery, setUserQuery] = React.useState('');
   const [pendingAddUserId, setPendingAddUserId] = React.useState<string>('');
   const [pendingAddRole, setPendingAddRole] = React.useState<'lead'|'member'>('member');
@@ -84,7 +135,7 @@ export default function TeamsManagement() {
     if (!orgId) return;
     setLoading(true);
     try {
-      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?withCounts=1`);
+      const list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?withCounts=1&includeMine=1`);
       setDepartments(list || []);
       // Defer users fetch to reduce initial load; fetch on demand when user picker opens
     } finally { 
@@ -110,12 +161,18 @@ export default function TeamsManagement() {
   const loadMembers = React.useCallback(async (deptId: string) => {
     const orgId = getApiContext().orgId || '';
     if (!orgId) return;
+    setMembersLoading(true);
     try {
       const rows = await apiFetch<any[]>(`/orgs/${orgId}/departments/${deptId}/users`);
       const mapped = (rows || []).map(r => ({ userId: r.userId, role: r.role, displayName: r.displayName, email: r.email }));
       setMembers(mapped);
       return mapped;
-    } catch { return []; }
+    } catch {
+      setMembers([]);
+      return [];
+    } finally {
+      setMembersLoading(false);
+    }
   }, []);
 
   React.useEffect(() => { if (selected) void loadMembers(selected); }, [selected, loadMembers]);
@@ -368,8 +425,13 @@ export default function TeamsManagement() {
 
       {/* Teams Grid */}
       {loading ? (
-        <div className="text-center py-8">
-          <div className="text-sm text-muted-foreground">Loading teams...</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <TeamSkeleton />
+          <TeamSkeleton />
+          <TeamSkeleton />
+          <TeamSkeleton />
+          <TeamSkeleton />
+          <TeamSkeleton />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -398,13 +460,7 @@ export default function TeamsManagement() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      {dept.name === 'General' ? (
-                        <div className="text-xs text-muted-foreground px-2 py-1 bg-gray-100 rounded">
-                          Default team for admin
-                        </div>
-                      ) : (
-                        <>
-                      {isAdmin && (
+                      {isAdmin && dept.name !== 'Core' && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -414,24 +470,26 @@ export default function TeamsManagement() {
                           <Edit className="w-4 h-4" />
                         </Button>
                       )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                            onClick={() => {
-                              setSelected(dept.id);
-                              setAddUserMode(null); // Reset mode when switching teams
-                              void loadMembers(dept.id);
-                            }}
-                        title="Manage members"
-                      >
-                        <Users className="w-4 h-4" />
-                      </Button>
-                      {isAdmin && (
+                      {dept.name !== 'Core' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setSelected(dept.id);
+                            setAddUserMode(null); // Reset mode when switching teams
+                            void loadMembers(dept.id);
+                          }}
+                          title="Manage members"
+                        >
+                          <Users className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {isAdmin && dept.name !== 'Core' && (
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
+                            <Button
+                              size="sm"
+                              variant="ghost"
                               className="text-red-600 hover:text-red-700"
                               disabled={operationInProgress !== null}
                             >
@@ -456,8 +514,11 @@ export default function TeamsManagement() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                          )}
-                        </>
+                      )}
+                      {dept.name === 'Core' && (
+                        <div className="px-3 py-1 bg-purple-100 text-purple-800 text-xs rounded-md border border-purple-200">
+                          🔒 Restricted
+                        </div>
                       )}
                     </div>
                   </div>
@@ -469,7 +530,7 @@ export default function TeamsManagement() {
       )}
 
       {/* Members panel */}
-      {selected && departments.find(d => d.id === selected)?.name !== 'General' && (
+      {selected && departments.find(d => d.id === selected)?.name !== 'Core' && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -767,7 +828,14 @@ export default function TeamsManagement() {
                 <div className="col-span-2">Role</div>
                 <div className="col-span-1 text-right">Actions</div>
               </div>
-              {members.map(m => (
+              {membersLoading ? (
+                <>
+                  <MemberSkeleton />
+                  <MemberSkeleton />
+                  <MemberSkeleton />
+                </>
+              ) : (
+                members.map(m => (
                 <div key={m.userId} className="grid grid-cols-12 gap-2 items-center px-3 py-2 text-sm border-b last:border-b-0">
                   <div className="col-span-5 truncate">{m.displayName || '—'}</div>
                   <div className="col-span-4 truncate text-muted-foreground">{m.email || '—'}</div>
@@ -876,8 +944,25 @@ export default function TeamsManagement() {
                     }</Button>
                   </div>
                 </div>
-              ))}
-              {members.length === 0 && <div className="p-3 text-xs text-muted-foreground">No members yet.</div>}
+              ))
+              )}
+              {!membersLoading && members.length === 0 && <div className="p-3 text-xs text-muted-foreground">No members yet.</div>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {selected && departments.find(d => d.id === selected)?.name === 'Core' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Core Team</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                <span className="font-medium">Restricted Department</span>
+              </div>
+              <p>The Core department is managed exclusively by administrators. Team members cannot be added or removed from this department to maintain system integrity.</p>
             </div>
           </CardContent>
         </Card>

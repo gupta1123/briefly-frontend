@@ -41,7 +41,7 @@ type Extracted = {
 
 function UploadContent() {
   const [files, setFiles] = useState<File[]>([]);
-  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string }[]>([]);
+  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string; sizeWarning?: string }[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [carouselMode, setCarouselMode] = useState<boolean>(true);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -114,10 +114,32 @@ function UploadContent() {
     }
   }, [searchParams]);
 
+  const getFileSizeWarning = (file: File): string | null => {
+    const sizeMB = file.size / (1024 * 1024);
+    const mimeType = file.type || '';
+
+    const limits: Record<string, number> = {
+      'application/pdf': 25,
+      'image/jpeg': 5,
+      'image/png': 5,
+      'image/gif': 3,
+      'application/msword': 10,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 10,
+      'application/vnd.ms-powerpoint': 15,
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 15,
+    };
+
+    const limit = limits[mimeType] || 5;
+    if (sizeMB > limit) {
+      return `Large file (${sizeMB.toFixed(1)}MB) - AI processing may be skipped`;
+    }
+    return null;
+  };
+
   const onSelect = async (list: FileList | File[]) => {
     const arr = Array.from(list);
     if (arr.length === 0) return;
-    
+
     // Push to queue with initial state; compute hashes to dedupe
     const entries = await Promise.all(arr.map(async (f) => ({
       file: f,
@@ -127,6 +149,7 @@ function UploadContent() {
       previewUrl: URL.createObjectURL(f),
       rotation: 0,
       linkMode: 'new' as const,
+      sizeWarning: getFileSizeWarning(f) || undefined,
     })));
     
     // Only dedupe within queue; allow matching existing docs (we will suggest linking as version instead)
@@ -139,7 +162,12 @@ function UploadContent() {
       }
       return true;
     });
-    setQueue(prev => [...prev, ...filtered]);
+    // Ensure all items have the correct types
+    const properlyTyped = filtered.map(item => ({
+      ...item,
+      sizeWarning: item.sizeWarning || undefined,
+    }));
+    setQueue(prev => [...prev, ...properlyTyped]);
   };
 
   const onBrowse = () => {
@@ -202,14 +230,33 @@ function UploadContent() {
           body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
         });
       } catch (e: any) {
-        // Gracefully accept server fallback when AI is unavailable (HTTP 503)
+        // Gracefully accept server fallback when AI is unavailable (HTTP 503 or 413)
         const status = (e && e.status) || 0;
         const fallback = (e && e.data && e.data.fallback) || null;
-        if (status === 503 && fallback && (typeof fallback === 'object')) {
+
+        if ((status === 503 || status === 413) && fallback && (typeof fallback === 'object')) {
           analyzeResp = fallback as { ocrText: string; metadata: any };
+
+          // Determine the appropriate message based on status
+          let toastTitle = 'AI processing limited';
+          let toastDescription = 'Metadata was prefilled from filename. You can edit before saving.';
+
+          if (status === 413) {
+            toastTitle = 'Large file uploaded';
+            toastDescription = 'File is too large for AI processing. Basic metadata was generated from filename. You can edit details before saving.';
+          } else if (status === 503) {
+            if (e.data?.error?.includes('timeout')) {
+              toastTitle = 'AI processing timeout';
+              toastDescription = 'Document took too long to process. Basic metadata was generated. You can edit details before saving.';
+            } else {
+              toastTitle = 'AI service busy';
+              toastDescription = 'AI is temporarily unavailable. Basic metadata was generated from filename. You can edit before saving.';
+            }
+          }
+
           toast({
-            title: 'AI is busy — using fallback',
-            description: 'Metadata was prefilled from filename. You can edit before saving; background processing will enhance details later.',
+            title: toastTitle,
+            description: toastDescription,
           });
         } else {
           throw e;
@@ -583,49 +630,50 @@ function UploadContent() {
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-6">
-        <div className="px-4 md:px-6 pt-4">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => {
-              const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
-              router.push(`/documents${dest}`);
-            }}
-            className="mb-2"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Documents
-          </Button>
-        </div>
-        <PageHeader
-          title={folderPath.length ? `Upload to /${folderPath.join('/')}` : "Upload Documents"}
-          subtitle={folderPath.length ? 
-            `Add files to the ${folderPath[folderPath.length - 1]} folder. We'll analyze, organize, and prepare smart metadata for you.` :
-            "Add files and we'll analyze, organize, and prepare smart metadata for you."
-          }
-          sticky
-        />
-        <div className="px-4 md:px-6">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Add a new document to your collection.</p>
-          {hasRoleAtLeast('systemAdmin') && folderPath.length === 0 ? (
-            <div className="flex items-center gap-2">
-              <span className="text-sm">Department</span>
-              <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)} required>
-                <UiSelectTrigger className="w-[220px]"><UiSelectValue placeholder="Select department" /></UiSelectTrigger>
-                <UiSelectContent>
-                  {departments.map(d => (<UiSelectItem key={d.id} value={d.id}>{d.name}</UiSelectItem>))}
-                </UiSelectContent>
-              </UiSelect>
-              {!selectedDepartmentId && (
-                <span className="text-xs text-red-600">Required</span>
-              )}
+        <div className="bg-card/50 border-b border-border/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="px-4 md:px-6 py-3">
+            <div className="max-w-6xl mx-auto">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/documents')}
+                    className="hover-premium focus-premium p-2 h-8"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="min-w-0 flex-1">
+                    <h1 className="text-lg font-semibold text-foreground truncate">
+                      {folderPath.length ? `Upload to /${folderPath.join('/')}` : "Upload Documents"}
+                    </h1>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {folderPath.length ?
+                        `Add files to the ${folderPath[folderPath.length - 1]} folder. We'll analyze, organize, and prepare smart metadata for you.` :
+                        "Add files and we'll analyze, organize, and prepare smart metadata for you."
+                      }
+                    </p>
+                  </div>
+                </div>
+                {hasRoleAtLeast('systemAdmin') && folderPath.length === 0 && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground font-medium">Department</span>
+                    <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)} required>
+                      <UiSelectTrigger className="w-[180px] h-8 text-xs">
+                        <UiSelectValue placeholder="Select department" />
+                      </UiSelectTrigger>
+                      <UiSelectContent>
+                        {departments.map(d => (<UiSelectItem key={d.id} value={d.id}>{d.name}</UiSelectItem>))}
+                      </UiSelectContent>
+                    </UiSelect>
+                    {!selectedDepartmentId && (
+                      <span className="text-xs text-red-600 font-medium">Required</span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              Department: {folderPath.length > 0 ? 'Inherited from folder' : (departments.find(d => d.id === selectedDepartmentId)?.name || 'Your team')}
-            </div>
-          )}
+          </div>
         </div>
         {!hasRoleAtLeast('member') && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
@@ -635,13 +683,13 @@ function UploadContent() {
         )}
 
         {hasRoleAtLeast('member') && queue.length === 0 && (
-          <Card className="rounded-2xl">
-            <CardContent className="py-10">
+          <Card className="rounded-xl border-2 border-dashed border-border/50 bg-card card-premium hover-premium">
+            <CardContent className="py-12">
               <div
                 role="button"
                 tabIndex={0}
                 aria-describedby="upload-help"
-                className={`mx-auto max-w-2xl border-2 border-dashed rounded-xl bg-card text-center p-10 transition-colors ${dragOver ? 'border-primary/40 bg-accent/10' : 'hover:bg-accent/10'}`}
+                className={`mx-auto max-w-2xl border-2 border-dashed rounded-xl bg-secondary/30 text-center p-12 transition-all duration-200 ${dragOver ? 'border-primary/50 bg-accent/20 scale-[1.01]' : 'hover:bg-accent/15 hover:border-primary/30 hover:shadow-lg'}`}
                 onClick={onBrowse}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBrowse(); }}
                 onDragEnter={() => setDragOver(true)}
@@ -649,20 +697,35 @@ function UploadContent() {
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDrop={(e) => { setDragOver(false); onDrop(e); }}
               >
-                <UploadCloud className="h-12 w-12 mx-auto text-primary mb-4" />
-                <div className="text-lg font-semibold">Drag & drop files here</div>
-                <div className="text-sm text-muted-foreground">or click to browse</div>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
-                  <span className="rounded-full border px-2 py-0.5">PDF</span>
-                  <span className="rounded-full border px-2 py-0.5">DOC/DOCX</span>
-                  <span className="rounded-full border px-2 py-0.5">PPT/PPTX</span>
-                  <span className="rounded-full border px-2 py-0.5">TXT</span>
-                  <span className="rounded-full border px-2 py-0.5">MD</span>
-                  <span className="rounded-full border px-2 py-0.5">JPG</span>
-                  <span className="rounded-full border px-2 py-0.5">PNG</span>
+                <div className="mb-6">
+                  <UploadCloud className="h-16 w-16 mx-auto text-primary mb-4 drop-shadow-sm" />
                 </div>
-                <div id="upload-help" className="mt-2 text-xs text-muted-foreground">We’ll extract metadata and a summary automatically.</div>
-                <div className="mt-6 flex items-center justify-center gap-3">
+                <div className="space-y-2 mb-6">
+                  <div className="text-xl font-semibold text-foreground">Drag & drop files here</div>
+                  <div className="text-sm text-muted-foreground">or click to browse your computer</div>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {[
+                    { type: 'PDF', color: 'bg-red-500/10 text-red-600 border-red-500/20' },
+                    { type: 'DOC/DOCX', color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
+                    { type: 'PPT/PPTX', color: 'bg-orange-500/10 text-orange-600 border-orange-500/20' },
+                    { type: 'TXT', color: 'bg-gray-500/10 text-gray-600 border-gray-500/20' },
+                    { type: 'MD', color: 'bg-purple-500/10 text-purple-600 border-purple-500/20' },
+                    { type: 'JPG', color: 'bg-green-500/10 text-green-600 border-green-500/20' },
+                    { type: 'PNG', color: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20' }
+                  ].map(({ type, color }) => (
+                    <span key={type} className={`rounded-full border px-3 py-1 text-xs font-medium ${color} transition-colors`}>
+                      {type}
+                    </span>
+                  ))}
+                </div>
+                <div id="upload-help" className="mt-4 text-xs text-muted-foreground text-center space-y-1">
+                  <div>We'll automatically extract metadata and generate a summary for you</div>
+                  <div className="text-orange-600 dark:text-orange-400">
+                    Large files (25MB+ PDFs, 5MB+ images) may skip AI processing for faster upload
+                  </div>
+                </div>
+                <div className="mt-8 flex items-center justify-center gap-3">
                   <input
                     ref={inputRef}
                     type="file"
@@ -671,11 +734,15 @@ function UploadContent() {
                     className="hidden"
                     onChange={(e) => e.target.files && onSelect(e.target.files)}
                   />
-                  <Button onClick={(e) => { e.stopPropagation(); onBrowse(); }} className="gap-2"><UploadCloud className="h-4 w-4" /> Browse files</Button>
+                  <Button 
+                    onClick={(e) => { e.stopPropagation(); onBrowse(); }} 
+                    className="gap-2 hover-premium focus-premium px-6 py-2"
+                    size="lg"
+                  >
+                    <UploadCloud className="h-4 w-4" /> 
+                    Browse files
+                  </Button>
                 </div>
-              </div>
-              <div className="mx-auto max-w-2xl mt-4 text-xs text-muted-foreground">
-                Tips: Keep filenames descriptive. You can link uploads as new versions after processing.
               </div>
             </CardContent>
           </Card>
@@ -683,33 +750,69 @@ function UploadContent() {
 
         {hasRoleAtLeast('member') && queue.length > 0 && (
           <>
-            <Card className="rounded-2xl">
-              <CardHeader className="flex flex-col gap-2">
+            <Card className="rounded-xl card-premium">
+              <CardHeader className="flex flex-col gap-3 pb-4">
                 <div className="flex items-center justify-between">
-                  <CardTitle>Upload Queue</CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+                      <UploadCloud className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg font-semibold">Upload Queue</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {queue.filter(item => item.status === 'ready').length} of {queue.length} files ready to save
+                      </p>
+                    </div>
+                  </div>
                     <div className="flex items-center gap-2">
                     {queue.filter(item => item.status === 'ready' && !item.locked).length > 1 && (
-                      <Button variant="default" size="sm" onClick={saveAllReady} className="gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={saveAllReady}
+                        className="gap-2 hover-premium focus-premium"
+                      >
                         <Check className="h-3 w-3" />
                         Save All ({queue.filter(item => item.status === 'ready' && !item.locked).length})
                       </Button>
                     )}
                     {carouselMode && queue.length > 1 && (
                       <>
-                      <Button variant="outline" size="sm" onClick={() => setActiveIndex((prev) => {
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveIndex((prev) => {
                         const i = (prev ?? 0) - 1;
                         return i < 0 ? queue.length - 1 : i;
-                      })}>Prev</Button>
-                      <Button variant="outline" size="sm" onClick={() => setActiveIndex((prev) => {
+                          })}
+                          className="hover-premium focus-premium"
+                        >
+                          Prev
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveIndex((prev) => {
                         const i = (prev ?? 0) + 1;
                         return i >= queue.length ? 0 : i;
-                      })}>Next</Button>
+                          })}
+                          className="hover-premium focus-premium"
+                        >
+                          Next
+                        </Button>
                       </>
                     )}
                     {queue.length > 1 && (
-                      <Button variant="ghost" size="sm" onClick={() => setCarouselMode(m => !m)}>{carouselMode ? 'List' : 'Carousel'}</Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCarouselMode(m => !m)}
+                        className="hover-premium focus-premium"
+                      >
+                        {carouselMode ? 'List' : 'Carousel'}
+                      </Button>
                     )}
-                    </div>
+                  </div>
                 </div>
                 {typeof activeIndex === 'number' && queue[activeIndex] && (
                   <div className="text-xs text-muted-foreground">Viewing {activeIndex + 1} of {queue.length}</div>
@@ -726,6 +829,11 @@ function UploadContent() {
                           <div className="min-w-0">
                             <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
                             <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
+                            {(item as any).sizeWarning && (
+                              <div className="text-xs text-orange-600 dark:text-orange-400 truncate" title={(item as any).sizeWarning}>
+                                ⚠️ {(item as any).sizeWarning}
+                              </div>
+                            )}
                           </div>
                           <div className="w-40"><Progress value={item.progress} /></div>
                           <div className="flex items-center gap-2">
@@ -769,8 +877,8 @@ function UploadContent() {
                             )}
                           </div>
                         )}
-                        {item.status === 'ready' && item.form && (
-                          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {item.status === 'ready' && item.form && (
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                             {/* Link as version vs new */}
                             <div className="md:col-span-2">
                               <label className="text-sm">Save mode</label>
@@ -780,7 +888,7 @@ function UploadContent() {
                                 </label>
                                 <label className={"flex items-center gap-2 text-sm " + (!hasExistingDocs ? 'opacity-60' : '')}>
                                   <input type="radio" disabled={!hasExistingDocs} checked={item.linkMode === 'version'} onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'version' } : q))} /> Link as New Version
-                                </label>
+                              </label>
                                 {item.linkMode === 'version' && hasExistingDocs && item.candidates && item.candidates.length > 0 && (
                                   <select
                                     className="border rounded-md p-1 text-sm"
@@ -805,60 +913,60 @@ function UploadContent() {
                                 <FileText className="h-3 w-3" />
                                 Title
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <FileText className="h-3 w-3" />
                                 Filename
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <User className="h-3 w-3" />
                                 Sender
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <UserCheck className="h-3 w-3" />
                                 Receiver
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
                                 Document Date
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Tag className="h-3 w-3" />
                                 Document Type
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <MessageSquare className="h-3 w-3" />
                                 Subject
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <MessageSquare className="h-3 w-3" />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <MessageSquare className="h-3.5 w-3.5" />
                                 Description
                               </label>
-                              <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                              <textarea rows={3} className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm resize-none" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Bookmark className="h-3 w-3" />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <Bookmark className="h-3.5 w-3.5" />
                                 Category
                               </label>
                               <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
@@ -875,22 +983,22 @@ function UploadContent() {
                               </UiSelect>
                             </div>
                             <div>
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Hash className="h-3 w-3" />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <Hash className="h-3.5 w-3.5" />
                                 Keywords (comma)
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Tag className="h-3 w-3" />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <Tag className="h-3.5 w-3.5" />
                                 Tags (comma)
                               </label>
-                              <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <FolderOpen className="h-3 w-3" />
+                              <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                                <FolderOpen className="h-3.5 w-3.5" />
                                 Upload Destination
                                 {folderPath.length > 0 && (
                                   <span className="ml-2 text-primary font-medium">
@@ -937,6 +1045,11 @@ function UploadContent() {
                         <div className="min-w-0">
                           <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
                           <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
+                          {(item as any).sizeWarning && (
+                            <div className="text-xs text-orange-600 dark:text-orange-400 truncate" title={(item as any).sizeWarning}>
+                              ⚠️ {(item as any).sizeWarning}
+                            </div>
+                          )}
                         </div>
                         <div className="w-40"><Progress value={item.progress} /></div>
                         <div className="flex items-center gap-2">
@@ -948,148 +1061,163 @@ function UploadContent() {
                       {item.status === 'ready' && item.form && (
                         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-muted-foreground flex items-center gap-1">
-                              <FileText className="h-3 w-3" />
+                            <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                              <FileText className="h-3.5 w-3.5" />
                               Title
                             </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                            <input
+                              className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
+                              value={form.title || item.form.title}
+                              onChange={(e) => setForm({ ...form, title: e.target.value })}
+                              placeholder="Enter document title..."
+                            />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground flex items-center gap-1">
-                              <FileText className="h-3 w-3" />
+                            <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                              <FileText className="h-3.5 w-3.5" />
                               Filename
                             </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
+                            <input
+                              className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
+                              value={form.filename || item.form.filename}
+                              onChange={(e) => setForm({ ...form, filename: e.target.value })}
+                              placeholder="Enter filename..."
+                            />
                           </div>
                           <div>
-                            <label className="text-xs text-muted-foreground flex items-center gap-1">
-                              <User className="h-3 w-3" />
+                            <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+                              <User className="h-3.5 w-3.5" />
                               Sender
                             </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
+                            <input
+                              className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
+                              value={form.sender || item.form.sender}
+                              onChange={(e) => setForm({ ...form, sender: e.target.value })}
+                              placeholder="Who sent this document?"
+                            />
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <UserCheck className="h-3 w-3" />
                               Receiver
                             </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
                               Document Date
                             </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
-                          </div>
-                          <div>
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                        </div>
+                        <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <Tag className="h-3 w-3" />
-                              Document Type
-                            </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
-                          </div>
-                          <div className="md:col-span-2">
+                            Document Type
+                          </label>
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
+                        </div>
+                        <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <MessageSquare className="h-3 w-3" />
-                              Subject
-                            </label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-                          </div>
-                          <div className="md:col-span-2">
+                            Subject
+                          </label>
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                        </div>
+                        <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <MessageSquare className="h-3 w-3" />
-                              Description
-                            </label>
+                            Description
+                          </label>
                             <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-                          </div>
-                          <div>
+                        </div>
+                        <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <Bookmark className="h-3 w-3" />
-                              Category
-                            </label>
-                            <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                            Category
+                          </label>
+                          <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
                               <UiSelectTrigger className="mt-1 w-full">
-                                <UiSelectValue placeholder="Select category..." />
-                              </UiSelectTrigger>
-                              <UiSelectContent>
-                                {categories.map((category) => (
-                                  <UiSelectItem key={category} value={category}>
-                                    {category}
-                                  </UiSelectItem>
-                                ))}
-                              </UiSelectContent>
-                            </UiSelect>
-                          </div>
-                          <div>
+                              <UiSelectValue placeholder="Select category..." />
+                            </UiSelectTrigger>
+                            <UiSelectContent>
+                              {categories.map((category) => (
+                                <UiSelectItem key={category} value={category}>
+                                  {category}
+                                </UiSelectItem>
+                              ))}
+                            </UiSelectContent>
+                          </UiSelect>
+                        </div>
+                        <div>
                             <label className="text-xs text-muted-foreground">Keywords (comma)</label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
-                          </div>
-                          <div className="md:col-span-2">
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                        </div>
+                        <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground">Tags (comma)</label>
-                            <input className="mt-1 rounded-md border bg-background p-2 w-full" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-                          </div>
-                          
-                          {/* Linking Options */}
-                          <div className="md:col-span-2">
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                        </div>
+
+                        {/* Linking Options */}
+                        <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <LinkIcon className="h-3 w-3" />
-                              Document Relationship
-                            </label>
+                            Document Relationship
+                          </label>
                             <div className="mt-2 flex items-center gap-4">
                               <label className="flex items-center gap-2 text-sm">
-                                <input 
-                                  type="radio" 
-                                  checked={item.linkMode === 'new'} 
-                                  onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'new' } : q))} 
-                                /> 
-                                New Document
-                              </label>
+                              <input
+                                type="radio"
+                                checked={item.linkMode === 'new'}
+                                onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'new' } : q))}
+                              />
+                              New Document
+                            </label>
                               <label className={`flex items-center gap-2 text-sm ${documents.length === 0 ? 'opacity-50' : ''}`}>
-                                <input 
-                                  type="radio" 
-                                  disabled={documents.length === 0} 
-                                  checked={item.linkMode === 'version'} 
-                                  onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'version' } : q))} 
-                                /> 
-                                Link as New Version
-                              </label>
-                              {item.linkMode === 'version' && documents.length > 0 && (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  onClick={() => setPickerOpenIndex(i)}
+                              <input
+                                type="radio"
+                                disabled={documents.length === 0}
+                                checked={item.linkMode === 'version'}
+                                onChange={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, linkMode: 'version' } : q))}
+                              />
+                              Link as New Version
+                            </label>
+                            {item.linkMode === 'version' && documents.length > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setPickerOpenIndex(i)}
                                   className="text-xs h-7"
-                                >
-                                  {item.baseId ? 
-                                    `Selected: ${documents.find(d => d.id === item.baseId)?.title || documents.find(d => d.id === item.baseId)?.name || 'Unknown'}` :
-                                    'Select Document'
-                                  }
-                                </Button>
-                              )}
-                            </div>
-                            {item.linkMode === 'version' && !item.baseId && (
-                              <div className="mt-1 text-xs text-destructive">
-                                Please select a document to link this as a new version.
-                              </div>
+                              >
+                                {item.baseId ?
+                                  `Selected: ${documents.find(d => d.id === item.baseId)?.title || documents.find(d => d.id === item.baseId)?.name || 'Unknown'}` :
+                                  'Select Document'
+                                }
+                              </Button>
                             )}
                           </div>
-                          <div className="md:col-span-2">
+                          {item.linkMode === 'version' && !item.baseId && (
+                            <div className="mt-1 text-xs text-destructive">
+                              Please select a document to link this as a new version.
+                            </div>
+                          )}
+                        </div>
+                        <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground">
-                              Upload Destination
-                              {folderPath.length > 0 && (
-                                <span className="ml-2 text-primary font-medium">
-                                  /{folderPath.join('/')}
-                                </span>
-                              )}
-                            </label>
+                            Upload Destination
+                            {folderPath.length > 0 && (
+                              <span className="ml-2 text-primary font-medium">
+                                /{folderPath.join('/')}
+                              </span>
+                            )}
+                          </label>
                             <div className="mt-1 text-xs text-muted-foreground">
                               Documents will be uploaded to: <span className="font-medium">/{folderPath.join('/') || 'Root'}</span>
-                              <br />
+                            <br />
                               Folder path is set from the main form above.
-                            </div>
                           </div>
                         </div>
+                      </div>
                       )}
                     </div>
                   ))
@@ -1162,7 +1290,6 @@ function UploadContent() {
             </DialogContent>
           </Dialog>
         )}
-        </div>
       </div>
     </AppLayout>
   );
@@ -1175,3 +1302,4 @@ export default function UploadPage() {
     </Suspense>
   );
 }
+
