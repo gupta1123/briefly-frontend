@@ -62,7 +62,7 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 }
 
 function DocumentsPageContent() {
-  const { documents, folders, listFolders, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments } = useDocuments();
+  const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
   const { hasRoleAtLeast } = useAuth();
   const searchParams = useSearchParams();
@@ -96,7 +96,7 @@ function DocumentsPageContent() {
   const currentDocs = getDocumentsInPath(path);
   const [query, setQuery] = useState('');
   const [field, setField] = useState<'all' | 'title' | 'subject' | 'sender' | 'receiver' | 'keywords' | 'doctype'>('all');
-  const [searchInFolderOnly, setSearchInFolderOnly] = useState<boolean>(false);
+
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
@@ -104,7 +104,7 @@ function DocumentsPageContent() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [movePathInput, setMovePathInput] = useState('');
   const [dragOverFolderIdx, setDragOverFolderIdx] = useState<number | null>(null);
-  const [showCurrentOnly, setShowCurrentOnly] = useState(true);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
@@ -183,28 +183,25 @@ function DocumentsPageContent() {
 
   // Load all documents when searching (progressive), debounced to reduce churn
   useEffect(() => {
-    if (!query.trim() || searchInFolderOnly) return;
+    if (!query.trim()) return;
     const tid = setTimeout(() => { void loadAllDocuments(); }, 250);
     return () => clearTimeout(tid);
-  }, [query, searchInFolderOnly, loadAllDocuments]);
+  }, [query, loadAllDocuments]);
 
   const filteredDocs = useMemo(() => {
-    // ALWAYS filter out folders first, regardless of search or current folder
-    const allDocs = (showCurrentOnly ? documents.filter(d => d.isCurrentVersion !== false) : documents)
-      .filter(d => d.type !== 'folder'); // Exclude folder placeholders
-    
-    const currentDocsFiltered = (showCurrentOnly ? currentDocs.filter(d => d.isCurrentVersion !== false) : currentDocs)
-      .filter(d => d.type !== 'folder'); // Also filter currentDocs to exclude folders
-    
-    const base = query.trim() ? (searchInFolderOnly ? currentDocsFiltered : allDocs) : currentDocsFiltered;
-    
+    // Show all documents without current version filtering
+    const allDocs = documents.filter(d => d.type !== 'folder'); // Exclude folder placeholders
+
+    // When searching, always search all documents globally
+    const base = query.trim() ? allDocs : currentDocs.filter(d => d.type !== 'folder');
+
     if (!query.trim()) return base;
-    
+
     const q = query.toLowerCase();
     const searchResults = base.filter(d => {
       // Final safety check: ensure we never return folders in search results
       if (d.type === 'folder') return false;
-      
+
       const inArr = (arr?: string[]) => (arr || []).some(v => v.toLowerCase().includes(q));
       switch (field) {
         case 'title':
@@ -227,11 +224,11 @@ function DocumentsPageContent() {
             || inArr(d.keywords) || inArr(d.aiKeywords) || inArr(d.tags);
       }
     });
-    
+
     // SUPER SIMPLE: Just filter out any remaining folders
     const finalResults = searchResults.filter(d => d.type !== 'folder');
     return finalResults;
-  }, [query, field, currentDocs, showCurrentOnly, searchInFolderOnly, documents]);
+  }, [query, field, currentDocs, documents]);
 
   // Update URL when path changes (for navigation)
   useEffect(() => {
@@ -450,14 +447,14 @@ function DocumentsPageContent() {
             <Input placeholder="Search documents..." value={query} onChange={(e) => setQuery(e.target.value)} />
             {query.trim() && (
               <div className="absolute top-full left-0 mt-1 px-2 py-1 bg-accent text-accent-foreground text-xs rounded-md">
-                {isLoading && !searchInFolderOnly ? (
+                {isLoading ? (
                   <div className="flex items-center gap-1">
                     <div className="animate-spin rounded-full h-3 w-3 border-b border-current"></div>
                     Loading all documents for search...
                   </div>
                 ) : (
                   <>
-                    {searchInFolderOnly ? '🔍 Searching current folder' : '🔍 Searching all folders'} ({filteredDocs.length} results)
+                    🔍 Searching all folders ({filteredDocs.length} results)
                   </>
                 )}
               </div>
@@ -475,14 +472,8 @@ function DocumentsPageContent() {
               <SelectItem value="doctype">Doc Type</SelectItem>
             </SelectContent>
           </Select>
-          <div className="flex items-center gap-2 ml-2">
-            <Switch checked={searchInFolderOnly} onCheckedChange={(v) => setSearchInFolderOnly(!!v)} id="in-folder-only" />
-            <label htmlFor="in-folder-only" className="text-sm text-muted-foreground">In current folder</label>
-          </div>
-          <div className="flex items-center gap-2 ml-2">
-            <Switch checked={showCurrentOnly} onCheckedChange={setShowCurrentOnly} id="current-only" />
-            <label htmlFor="current-only" className="text-sm text-muted-foreground">Current only</label>
-          </div>
+
+
           {selectedIds.size > 0 && (
             <div className="ml-auto flex items-center gap-2">
               <Input ref={bulkTagInputRef} placeholder={`Add tag to ${selectedIds.size} selected`} value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} className="w-56" />
@@ -612,7 +603,13 @@ function DocumentsPageContent() {
                     <ThemeIcon icon={FolderIcon} className="h-8 w-8" />
                     <div className="flex-1">
                       <div className="font-medium">{p[p.length - 1]}</div>
-                      <div className="text-xs text-muted-foreground">{getDocumentsInPath(p).length} items</div>
+                      <div className="text-xs text-muted-foreground">
+                        {getDocumentsInPath(p).length} items
+                        {(() => {
+                          const metadata = getFolderMetadata(p);
+                          return metadata?.departmentName ? ` • ${metadata.departmentName}` : '';
+                        })()}
+                      </div>
                     </div>
                     {hasRoleAtLeast('member') && (
                       <Button
@@ -682,6 +679,15 @@ function DocumentsPageContent() {
                       <td className="p-3">
                         {hasRoleAtLeast('teamLead') ? (
                           (() => {
+                            const folderMetadata = getFolderMetadata(p);
+                            if (folderMetadata?.departmentName) {
+                              return (
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">
+                                  {folderMetadata.departmentName}
+                                </span>
+                              );
+                            }
+
                             const key = p.join('/');
                             const ids = folderAccess[key] || [];
                             if (ids.length === 0) return (
@@ -778,7 +784,6 @@ function DocumentsPageContent() {
                           </Link>
                         )}
                         <Link href={`/documents/${d.id}`} className="text-primary hover:underline">View</Link>
-                        <Link href={`/chat?docId=${d.id}`} className="text-primary hover:underline">Ask</Link>
                         {hasRoleAtLeast('member') && (
                           <Button 
                             variant="ghost" 

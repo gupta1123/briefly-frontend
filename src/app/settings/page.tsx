@@ -21,8 +21,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import CategoriesManagement from '@/components/categories-management';
+import DepartmentCategoriesManagement from '@/components/department-categories-management';
 import RolesManagement from '@/components/roles-management';
-import TeamsManagement from '@/components/teams-management';
+import TeamsManagement from '@/components/teams-management-new';
 import UsersManagement from '@/components/users-management';
 import OverridesManagement from '@/components/overrides-management';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,9 +44,10 @@ const ACCENT_COLORS = [
 ];
 
 export default function SettingsPage() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, bootstrapData, isLoading: authLoading } = useAuth();
   const isAdmin = user?.role === 'systemAdmin';
   const isTeamLead = user?.role === 'teamLead';
+  const canManageOrgMembers = bootstrapData?.permissions?.['org.manage_members'] === true;
   const { isAuthenticated } = useAuth();
 
   const { toast } = useToast();
@@ -59,7 +61,11 @@ export default function SettingsPage() {
 
   // Load organization settings including categories
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin) {
+    if (!isAuthenticated) {
+      setOrganizationLoading(false);
+      return;
+    }
+    if (!isAdmin) {
       setOrganizationLoading(false);
       return;
     }
@@ -80,46 +86,75 @@ export default function SettingsPage() {
     })();
   }, [isAuthenticated, isAdmin]);
   const { policy, setEnabled, addIp, removeIp, replaceIps, getCurrentIp } = useSecurity();
-  const { settings, updateSettings } = useSettings();
-  const [color, setColor] = React.useState<string>('default');
-  const [uiScale, setUiScale] = React.useState<'sm' | 'md' | 'lg'>('md');
-
-  const applyColor = (value: string) => {
-    setColor(value);
-    updateSettings({ accent_color: value });
-  };
-
-  const onToggleDarkMode = (enabled: boolean) => {
-    updateSettings({ dark_mode: enabled });
-  };
-
-  const [chatFiltersEnabled, setChatFiltersEnabled] = React.useState<boolean>(false);
+  const { settings: personalSettings, updateSettings: updatePersonalSettings } = useSettings();
   const [categories, setCategories] = React.useState<string[]>([]);
   
-  const applyChatFilters = (v: boolean) => {
-    setChatFiltersEnabled(v);
-    updateSettings({ chat_filters_enabled: v });
+  // Optimistic updates with error handling and rollback
+  const applyColor = async (value: string) => {
+    const previousColor = personalSettings.accent_color;
+    try {
+      // Optimistically update UI immediately
+      await updatePersonalSettings({ accent_color: value });
+    } catch (error: any) {
+      // If update fails, show error but don't rollback UI since useSettings handles this
+      toast({
+        title: 'Failed to update accent color',
+        description: error?.message || 'Please try again.',
+        variant: 'destructive'
+      });
+    }
   };
 
-  React.useEffect(() => {
-    setColor(settings.accent_color);
-    setChatFiltersEnabled(!!settings.chat_filters_enabled);
-    setUiScale((settings.ui_scale as any) || 'md');
-  }, [settings]);
+  const onToggleDarkMode = async (enabled: boolean) => {
+    const previousMode = personalSettings.dark_mode;
+    try {
+      await updatePersonalSettings({ dark_mode: enabled });
+    } catch (error: any) {
+      toast({
+        title: 'Failed to update theme',
+        description: error?.message || 'Please try again.',
+        variant: 'destructive'
+      });
+    }
+  };
 
-  // Simulate loading for different sections when authenticated
+
+
+  // Track real loading states based on authentication and data availability
   React.useEffect(() => {
-    if (!isAuthenticated) return;
-    
-    // Teams loading simulation
-    setTimeout(() => setTeamsLoading(false), 800);
-    
-    // Users loading simulation  
-    setTimeout(() => setUsersLoading(false), 1000);
-    
-    // Security loading simulation
-    setTimeout(() => setSecurityLoading(false), 600);
-  }, [isAuthenticated]);
+    if (!isAuthenticated) {
+      setTeamsLoading(false);
+      setUsersLoading(false);
+      setSecurityLoading(false);
+      return;
+    }
+
+    // Set initial loading states
+    if (isTeamLead || isAdmin) {
+      setTeamsLoading(true);
+    }
+    if (canManageOrgMembers) {
+      setUsersLoading(true);
+    }
+    if (isAdmin) {
+      setOrganizationLoading(true);
+      setSecurityLoading(true);
+    }
+
+    // These will be set to false when the actual components load their data
+    // For now, set reasonable timeouts for initial load
+    const teamsTimer = (isTeamLead || isAdmin) ? setTimeout(() => setTeamsLoading(false), 1000) : null;
+    const usersTimer = canManageOrgMembers ? setTimeout(() => setUsersLoading(false), 1200) : null;
+    const organizationTimer = isAdmin ? setTimeout(() => setOrganizationLoading(false), 900) : null;
+    const securityTimer = isAdmin ? setTimeout(() => setSecurityLoading(false), 800) : null;
+
+    return () => {
+      if (teamsTimer) clearTimeout(teamsTimer);
+      if (usersTimer) clearTimeout(usersTimer);
+      if (organizationTimer) clearTimeout(organizationTimer);
+      if (securityTimer) clearTimeout(securityTimer);
+    };
+  }, [isAuthenticated, isAdmin, isTeamLead, canManageOrgMembers]);
 
   return (
     <AppLayout>
@@ -134,18 +169,19 @@ export default function SettingsPage() {
         <Tabs defaultValue="appearance" className="space-y-6">
         <TabsList>
           <TabsTrigger value="appearance">Personal</TabsTrigger>
-          <TabsTrigger value="general">Organization</TabsTrigger>
+          {isAdmin && <TabsTrigger value="general">Organization</TabsTrigger>}
           {(isAdmin || isTeamLead) && <TabsTrigger value="teams">Teams</TabsTrigger>}
-          {(isAdmin || isTeamLead) && <TabsTrigger value="users">Users</TabsTrigger>}
+          {canManageOrgMembers && <TabsTrigger value="users">Users</TabsTrigger>}
           {isAdmin && <TabsTrigger value="roles">Access</TabsTrigger>}
           {isAdmin && <TabsTrigger value="security">Security</TabsTrigger>}
         </TabsList>
 
+                {isAdmin && (
         <TabsContent value="general">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">Organization <Badge variant="outline">Org‑wide</Badge></CardTitle>
-            <p className="text-sm text-muted-foreground">Basics and content preferences for your organization.</p>
+            <CardTitle className="flex items-center gap-2">Department Categories <Badge variant="outline">Admin Only</Badge></CardTitle>
+            <p className="text-sm text-muted-foreground">Manage document categories for each department. Each team can have their own set of categories.</p>
           </CardHeader>
           <CardContent className="space-y-4">
             {organizationLoading ? (
@@ -166,14 +202,14 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <CategoriesManagement 
-                categories={categories}
-                onCategoriesChange={setCategories}
+              <DepartmentCategoriesManagement
+                departments={bootstrapData?.departments || []}
               />
             )}
           </CardContent>
         </Card>
         </TabsContent>
+        )}
 
         <TabsContent value="appearance">
         <Card>
@@ -187,7 +223,17 @@ export default function SettingsPage() {
                       <label className="text-sm mb-2 block">Interface Size</label>
                       <div className="flex items-center gap-2">
                         {(['sm','md','lg'] as const).map(s => (
-                          <Button key={s} variant={uiScale === s ? 'default' : 'outline'} size="sm" onClick={() => { setUiScale(s); updateSettings({ ui_scale: s }); }}>
+                          <Button key={s} variant={personalSettings.ui_scale === s ? 'default' : 'outline'} size="sm" onClick={async () => {
+                            try {
+                              await updatePersonalSettings({ ui_scale: s });
+                            } catch (error: any) {
+                              toast({
+                                title: 'Failed to update interface size',
+                                description: error?.message || 'Please try again.',
+                                variant: 'destructive'
+                              });
+                            }
+                          }}>
                             {s === 'sm' ? 'Compact' : s === 'md' ? 'Comfort' : 'Roomy'}
                           </Button>
                         ))}
@@ -201,7 +247,7 @@ export default function SettingsPage() {
                     <button
                       key={c}
                       onClick={() => applyColor(c)}
-                      className={`h-7 w-7 rounded-full border ${color===c? 'ring-2 ring-ring': ''}`}
+                      className={`h-7 w-7 rounded-full border ${personalSettings.accent_color===c? 'ring-2 ring-ring': ''}`}
                       title={c}
                       style={{ background: 'hsl(var(--primary))' }}
                       data-color={c}
@@ -217,12 +263,22 @@ export default function SettingsPage() {
                     <div className="font-medium">Dark mode</div>
                     <div className="text-xs text-muted-foreground">Dim the UI and reduce glare for low‑light environments.</div>
                   </div>
-                  <Switch checked={!!settings.dark_mode} onCheckedChange={onToggleDarkMode} />
+                  <Switch checked={!!personalSettings.dark_mode} onCheckedChange={onToggleDarkMode} />
                 </div>
               </div>
               <div className="lg:col-span-2">
                 <label className="text-sm mb-2 block">Date Format</label>
-                <Select value={settings.date_format} onValueChange={(v) => { updateSettings({ date_format: v }); }}>
+                <Select value={personalSettings.date_format} onValueChange={async (v) => {
+                  try {
+                    await updatePersonalSettings({ date_format: v });
+                  } catch (error: any) {
+                    toast({
+                      title: 'Failed to update date format',
+                      description: error?.message || 'Please try again.',
+                      variant: 'destructive'
+                    });
+                  }
+                }}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select format" />
                   </SelectTrigger>
@@ -274,7 +330,7 @@ export default function SettingsPage() {
           )}
         </TabsContent>
 
-        {(isAdmin || isTeamLead) && (
+        {canManageOrgMembers && (
           <TabsContent value="users">
             {usersLoading ? (
               <Card>
@@ -384,17 +440,35 @@ export default function SettingsPage() {
                   <div className="text-sm font-medium">Allowed IPs</div>
                   <div className="flex gap-2 flex-wrap items-end">
                     <Input id="ipAdd2" placeholder="e.g., 203.0.113.10" className="w-64" />
-                    <Button onClick={() => {
+                    <Button onClick={async () => {
                       const el = document.getElementById('ipAdd2') as HTMLInputElement | null;
                       if (!el) return;
                       const v = el.value.trim();
                       if (!v) return;
-                      addIp(v);
+                      try {
+                        await addIp(v);
                       el.value = '';
+                      } catch (error: any) {
+                        toast({
+                          title: 'Invalid IP Address',
+                          description: error.message || 'Please enter a valid IP address.',
+                          variant: 'destructive'
+                        });
+                      }
                     }}>Add</Button>
                     <Button variant="outline" onClick={async () => {
+                      try {
                       const ip = await getCurrentIp();
-                      if (ip) addIp(ip);
+                        if (ip) {
+                          await addIp(ip);
+                        }
+                      } catch (error: any) {
+                        toast({
+                          title: 'Error Getting IP',
+                          description: error.message || 'Could not retrieve your current IP address.',
+                          variant: 'destructive'
+                        });
+                      }
                     }}>Use my IP</Button>
                   </div>
                   <div className="rounded-md border divide-y">
@@ -410,11 +484,20 @@ export default function SettingsPage() {
                     <label className="text-xs text-muted-foreground">Bulk replace (one per line)</label>
                     <textarea className="mt-1 w-full rounded-md border bg-background p-2 text-sm" rows={4} placeholder="203.0.113.5\n2001:db8::1" id="bulk-ips-settings" />
                     <div className="mt-2 flex items-center gap-2">
-                      <Button variant="outline" onClick={()=>{
+                      <Button variant="outline" onClick={async ()=>{
                         const ta = document.getElementById('bulk-ips-settings') as HTMLTextAreaElement | null;
                         if (!ta) return;
                         const ips = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
-                        replaceIps(ips);
+                        try {
+                          await replaceIps(ips);
+                          ta.value = '';
+                        } catch (error: any) {
+                          toast({
+                            title: 'Invalid IP Addresses',
+                            description: error.message || 'One or more IP addresses are invalid.',
+                            variant: 'destructive'
+                          });
+                        }
                       }}>Replace</Button>
                       <p className="text-xs text-muted-foreground">This overwrites the list above.</p>
                     </div>

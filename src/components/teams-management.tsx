@@ -531,17 +531,7 @@ export default function TeamsManagement() {
 
       {/* Members panel */}
       {selected && departments.find(d => d.id === selected)?.name !== 'Core' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Team Members
-              {(() => {
-                const t = departments.find(d => d.id === selected);
-                return t ? <span className="ml-2 text-sm text-muted-foreground">for <span className="font-medium">{t.name}</span></span> : null;
-              })()}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="space-y-4">
             {/* Add User Options */}
             {!addUserMode && (
               <div className="space-y-3">
@@ -820,136 +810,7 @@ export default function TeamsManagement() {
             </div>
               </div>
             )}
-            <div className="rounded-md border">
-              {/* Header row */}
-              <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-semibold text-muted-foreground border-b">
-                <div className="col-span-5">Name</div>
-                <div className="col-span-4">Email</div>
-                <div className="col-span-2">Role</div>
-                <div className="col-span-1 text-right">Actions</div>
-              </div>
-              {membersLoading ? (
-                <>
-                  <MemberSkeleton />
-                  <MemberSkeleton />
-                  <MemberSkeleton />
-                </>
-              ) : (
-                members.map(m => (
-                <div key={m.userId} className="grid grid-cols-12 gap-2 items-center px-3 py-2 text-sm border-b last:border-b-0">
-                  <div className="col-span-5 truncate">{m.displayName || '—'}</div>
-                  <div className="col-span-4 truncate text-muted-foreground">{m.email || '—'}</div>
-                  <div className="col-span-2">
-                    {m.userId === currentUserId ? (
-                      // For self row: show fixed label; do not allow self-downgrade
-                      <div className="text-xs px-2 py-1 rounded border inline-flex">
-                        {m.role === 'lead' ? 'Team Lead' : 'Member'}
-                      </div>
-                    ) : (
-                      <Select
-                        value={m.role}
-                        onValueChange={async (newRole: 'lead' | 'member') => {
-                          const orgId = getApiContext().orgId || '';
-                          const originalRole = m.role;
-                          
-                          // Check if trying to assign team lead when one already exists
-                          if (newRole === 'lead') {
-                            const existingLead = members.find(member => member.role === 'lead' && member.userId !== m.userId);
-                            if (existingLead) {
-                              toast({
-                                title: 'Cannot assign team lead',
-                                description: `${existingLead.displayName || existingLead.email} is already the team lead. A team can only have one lead.`,
-                                variant: 'destructive'
-                              });
-                              return;
-                            }
-                          }
-                          
-                          // Optimistic role update first
-                          setMembers(prev => prev.map(x => x.userId === m.userId ? { ...x, role: newRole } : x));
-                          
-                      try {
-                          await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { 
-                            method: 'POST', 
-                            body: { userId: m.userId, role: newRole } 
-                          });
-                            
-                          toast({ 
-                            title: 'Role updated', 
-                            description: `${m.displayName || m.email} is now a ${newRole}.` 
-                          });
-                          } catch (error: any) {
-                            // Rollback optimistic update
-                            setMembers(prev => prev.map(x => x.userId === m.userId ? { ...x, role: originalRole } : x));
-                            
-                            toast({ 
-                              title: 'Error updating role', 
-                              description: error.message || 'Failed to update role', 
-                              variant: 'destructive' 
-                            });
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="text-xs h-7">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="member">Member</SelectItem>
-                          {isAdmin && (
-                            <SelectItem 
-                              value="lead" 
-                              disabled={members.some(member => member.role === 'lead' && member.userId !== m.userId)}
-                            >
-                              Team Lead {members.some(member => member.role === 'lead' && member.userId !== m.userId) ? '(Already assigned)' : ''}
-                            </SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <Button size="sm" variant="outline" onClick={async ()=>{
-                      const orgId = getApiContext().orgId || '';
-                      if (operationInProgress) return;
-                      setOperationInProgress(`remove-user-${m.userId}`);
-
-                      // Store original state for rollback
-                      const originalMembers = [...members];
-                      const originalMemberCount = departments.find(d => d.id === selected)?.member_count || 0;
-
-                      // Optimistic remove
-                      setMembers(prev => prev.filter(x => x.userId !== m.userId));
-                      setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: Math.max(0, (d.member_count || 1) - 1) } : d));
-
-                      try {
-                        await apiFetch(`/orgs/${orgId}/departments/${selected}/users/${m.userId}`, { method: 'DELETE' });
-
-                        // Trigger org users changed event for other components
-                        try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
-                      } catch (error: any) {
-                        // Rollback optimistic update
-                        setMembers(originalMembers);
-                        setDepartments(prev => prev.map(d => d.id === selected ? { ...d, member_count: originalMemberCount } : d));
-
-                        toast({
-                          title: 'Error removing member',
-                          description: error.message || 'Failed to remove team member. Please try again.',
-                          variant: 'destructive' as any,
-                        });
-                      } finally {
-                        setOperationInProgress(null);
-                      }
-                    }} disabled={operationInProgress?.startsWith('remove-user')}>{
-                      operationInProgress === `remove-user-${m.userId}` ? 'Removing...' : 'Remove'
-                    }</Button>
-                  </div>
-                </div>
-              ))
-              )}
-              {!membersLoading && members.length === 0 && <div className="p-3 text-xs text-muted-foreground">No members yet.</div>}
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       )}
       {selected && departments.find(d => d.id === selected)?.name === 'Core' && (
         <Card>

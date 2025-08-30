@@ -285,7 +285,14 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
           }
           if (event === 'mode' && (data as any)?.mode) {
             const mode = (data as any).mode as string;
-            upsertAgentInfo(assistantId, (prev) => ({ ...prev, mode }));
+            const agentType = (data as any).agentType;
+            const agentName = (data as any).agentName;
+            upsertAgentInfo(assistantId, (prev) => ({
+              ...prev,
+              mode,
+              agentType,
+              agentName
+            }));
           }
           if (event === 'stage') {
             try {
@@ -346,7 +353,14 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
             } catch {}
           }
           if (event === 'end' && data && Array.isArray(data.citations)) {
-            setMessages((prev) => prev.map(m => m.id === assistantId ? { ...m, citations: data.citations } : m));
+            const agentType = (data as any).agentType;
+            const agentName = (data as any).agentName;
+            setMessages((prev) => prev.map(m => m.id === assistantId ? {
+              ...m,
+              citations: data.citations,
+              agentType,
+              agentName
+            } : m));
             setIsLoading(false);
             scrollToBottom();
           }
@@ -524,12 +538,13 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                   <MessageAvatar src="" name="BF" className="ring-0" />
                 ) : null}
                 <div className="relative">
-                  <MessageContent className="text-[15px] leading-7">
+                  <MessageContent className="text-[15px] leading-7 break-words overflow-wrap-anywhere">
                     {message.role === 'assistant' ? (
                       <div className="space-y-4">
                         {(message as any).agent && (
                           <div className="text-xs text-muted-foreground">
                             {((message as any).agent?.mode) ? <div>Mode: {(message as any).agent.mode}</div> : null}
+                            {((message as any).agentType) ? <div>Agent: {(message as any).agentType} ({(message as any).agentName})</div> : null}
                             {((message as any).agent?.stages || []).map((s: string, i: number) => (<div key={i}>• {s}</div>))}
                           </div>
                         )}
@@ -613,7 +628,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                         )}
                       </div>
                     ) : (
-                      <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed">
+                      <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed break-words overflow-wrap-anywhere">
                         {message.content}
                       </div>
                     )}
@@ -676,19 +691,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
               />
               <PromptInputToolbar>
                 <PromptInputTools>
-                  {documents.length > 0 && (
-                    <PromptInputButton
-                      variant="ghost"
-                      onClick={() => {
-                        const randomDoc = documents[Math.floor(Math.random() * documents.length)];
-                        const docName = randomDoc.title || randomDoc.name || 'document';
-                        setInput(`Give me a summary of ${docName}`);
-                      }}
-                      title="Random document suggestion"
-                    >
-                      <FileText className="h-4 w-4" /> Try a doc
-                    </PromptInputButton>
-                  )}
+                  {/* Try a doc button removed */}
                 </PromptInputTools>
                 {isLoading ? (
                   <Button variant="outline" size="sm" onClick={handleStop}>
@@ -720,12 +723,12 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
           align="end"
           className="w-80 rounded-xl p-0 md:w-96"
         >
-          <div className="flex flex-col h-[60vh]">
+          <div className="flex flex-col max-h-[70vh] h-full min-h-[400px]">
             <header className="p-4 border-b">
               <h3 className="font-semibold text-lg">Briefly Assistant</h3>
               <p className="text-sm text-muted-foreground">Ask anything about your documents.</p>
             </header>
-            <ScrollArea className="flex-1" ref={scrollAreaRef}>
+            <ScrollArea className="flex-1 overflow-hidden" ref={scrollAreaRef}>
               <div className="p-4 space-y-1">
                 {messages.length === 0 && (
                   <div className="text-center text-sm text-muted-foreground py-8">
@@ -734,7 +737,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                 )}
                 {messages.map((message) => (
                   <Message from={message.role} key={message.id}>
-                    <MessageContent>
+                    <MessageContent className="break-words overflow-wrap-anywhere">
                       {message.role === 'assistant' ? (
                         <div className="space-y-4">
                           {(message as any).agent && (
@@ -806,7 +809,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                           )}
                         </div>
                       ) : (
-                        <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed">
+                        <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed break-words overflow-wrap-anywhere">
                           {message.content}
                         </div>
                       )}
@@ -857,20 +860,7 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                 />
                               <PromptInputToolbar>
                 <PromptInputTools>
-                  {documents.length > 0 && (
-                    <PromptInputButton
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        const randomDoc = documents[Math.floor(Math.random() * documents.length)];
-                        const docName = randomDoc.title || randomDoc.name || 'document';
-                        setInput(`Tell me about ${docName}`);
-                      }}
-                      title="Get random document suggestion"
-                    >
-                      <FileText className="h-4 w-4" />
-                    </PromptInputButton>
-                  )}
+                  {/* Try a doc button removed */}
                 </PromptInputTools>
                 <PromptInputSubmit
                   status={isLoading ? 'submitted' : 'ready'}

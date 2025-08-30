@@ -21,6 +21,28 @@ type SecurityContextValue = {
 const STORAGE_KEY = 'documind_ip_allowlist_v1';
 const SecurityContext = createContext<SecurityContextValue | undefined>(undefined);
 
+// IP address validation functions
+const isValidIPv4 = (ip: string): boolean => {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipv4Regex.test(ip)) return false;
+
+  const parts = ip.split('.');
+  return parts.every(part => {
+    const num = parseInt(part, 10);
+    return num >= 0 && num <= 255;
+  });
+};
+
+const isValidIPv6 = (ip: string): boolean => {
+  // Basic IPv6 validation (can be expanded for full RFC compliance)
+  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^::$/;
+  return ipv6Regex.test(ip);
+};
+
+const isValidIP = (ip: string): boolean => {
+  return isValidIPv4(ip) || isValidIPv6(ip);
+};
+
 export function SecurityProvider({
   children,
   bootstrapData
@@ -68,9 +90,32 @@ export function SecurityProvider({
   }, []);
 
   const setEnabled = useCallback((v: boolean) => setPolicy(prev => { const next = { ...prev, enabled: v }; void persist(next); return next; }), [persist]);
-  const addIp = useCallback((ip: string) => setPolicy(prev => { const next = { ...prev, ips: Array.from(new Set([...prev.ips, ip.trim()])).filter(Boolean) }; void persist(next); return next; }), [persist]);
+
+  const addIp = useCallback((ip: string) => {
+    const trimmed = ip.trim();
+    if (!trimmed || !isValidIP(trimmed)) {
+      throw new Error(`Invalid IP address format: ${ip}`);
+    }
+    setPolicy(prev => {
+      const next = { ...prev, ips: Array.from(new Set([...prev.ips, trimmed])) };
+      void persist(next);
+      return next;
+    });
+  }, [persist]);
+
   const removeIp = useCallback((ip: string) => setPolicy(prev => { const next = { ...prev, ips: prev.ips.filter(x => x !== ip) }; void persist(next); return next; }), [persist]);
-  const replaceIps = useCallback((ips: string[]) => setPolicy(prev => { const next = { ...prev, ips: Array.from(new Set(ips.map(s => s.trim()).filter(Boolean))) }; void persist(next); return next; }), [persist]);
+
+  const replaceIps = useCallback((ips: string[]) => {
+    const validatedIps = ips.map(ip => ip.trim()).filter(ip => ip && isValidIP(ip));
+    if (validatedIps.length !== ips.filter(ip => ip.trim()).length) {
+      throw new Error('One or more IP addresses have invalid format');
+    }
+    setPolicy(prev => {
+      const next = { ...prev, ips: Array.from(new Set(validatedIps)) };
+      void persist(next);
+      return next;
+    });
+  }, [persist]);
 
   const getCurrentIp = useCallback(async () => {
     try {

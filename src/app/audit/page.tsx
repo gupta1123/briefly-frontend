@@ -7,7 +7,7 @@ import { useAudit } from '@/hooks/use-audit';
 import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { useMemo, useState, useEffect } from 'react';
@@ -124,14 +124,22 @@ function UserAvatar({ email, name }: { email?: string; name?: string }) {
 
 function RoleBadge({ role }: { role: string }) {
   const base = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium';
-  const cls = role.toLowerCase().includes('admin')
+  const roleLower = role.toLowerCase();
+
+  const cls = roleLower.includes('admin') || roleLower === 'systemadmin'
     ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
-    : role.toLowerCase().includes('manager')
+    : roleLower.includes('teamlead') || roleLower.includes('team lead') || roleLower === 'teamlead'
+    ? 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800'
+    : roleLower.includes('member') || roleLower === 'member'
     ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800'
-    : role.toLowerCase().includes('viewer')
+    : roleLower.includes('guest') || roleLower === 'guest'
+    ? 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800'
+    : roleLower.includes('manager') || roleLower === 'manager'
+    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800'
+    : roleLower.includes('viewer') || roleLower === 'viewer'
     ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800'
     : 'bg-gray-50 text-gray-700 border border-gray-200 dark:bg-gray-900/20 dark:text-gray-400 dark:border-gray-800';
-  
+
   return <span className={`${base} ${cls}`}>{role}</span>;
 }
 
@@ -195,7 +203,7 @@ export default function AuditPage() {
   const defaultStart = fmt(new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000)); // yesterday
 
   const [q, setQ] = useState('');
-  const [type, setType] = useState<string>('all');
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [actorsPick, setActorsPick] = useState<string[]>([]); // multiple actors
   const [start, setStart] = useState<string>(defaultStart); // yyyy-MM-dd
   const [end, setEnd] = useState<string>(defaultEnd);
@@ -206,7 +214,7 @@ export default function AuditPage() {
   const actors = useMemo(() => Array.from(new Set(events.map(e => e.actor))), [events]);
   const filtered = useMemo(() => {
     let list = events.filter(e => {
-      if (type !== 'all' && e.type !== type) return false;
+      if (selectedTypes.length > 0 && !selectedTypes.includes(e.type)) return false;
       if (actorsPick.length > 0 && !actorsPick.includes(e.actor)) return false;
       if (q.trim()) {
         const s = q.toLowerCase();
@@ -225,7 +233,7 @@ export default function AuditPage() {
       list = list.filter(e => e.ts <= to);
     }
     return list;
-  }, [events, q, type, actorsPick, start, end]);
+  }, [events, q, selectedTypes, actorsPick, start, end]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -286,28 +294,61 @@ export default function AuditPage() {
                 />
               </div>
               
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select value={type} onValueChange={setType}>
-                  <SelectTrigger className="w-40 h-9">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All types</SelectItem>
-                    {Object.keys(TYPE_LABEL).map(k => {
-                      const Icon = TYPE_ICONS[k];
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-40 h-9 justify-between">
+                    <Filter className="h-4 w-4" />
+                    Types {selectedTypes.length > 0 ? `(${selectedTypes.length})` : ''}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-3">
+                  <div className="text-xs text-muted-foreground mb-3 font-medium">Select one or more activity types</div>
+                  <div className="max-h-56 overflow-auto space-y-2">
+                    <div className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50">
+                      <Checkbox
+                        id="all-types"
+                        checked={selectedTypes.length === 0}
+                        onCheckedChange={() => setSelectedTypes([])}
+                      />
+                      <label htmlFor="all-types" className="text-sm font-medium">All Types</label>
+                    </div>
+                    {Object.entries(TYPE_LABEL).map(([key, label]) => {
+                      const Icon = TYPE_ICONS[key];
+                      const checked = selectedTypes.includes(key);
                       return (
-                        <SelectItem key={k} value={k}>
-                          <div className="flex items-center gap-2">
+                        <div key={key} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50">
+                          <Checkbox
+                            id={`type-${key}`}
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              setSelectedTypes(prev => {
+                                if (v) return Array.from(new Set([...prev, key]));
+                                return prev.filter(x => x !== key);
+                              });
+                            }}
+                          />
+                          <div className="flex items-center gap-2 text-sm">
                             {Icon && <Icon className="h-3 w-3" />}
-                            {TYPE_LABEL[k]}
+                            {label}
                           </div>
-                        </SelectItem>
+                        </div>
                       );
                     })}
-                  </SelectContent>
-                </Select>
-              </div>
+                  </div>
+                  {selectedTypes.length > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedTypes([])}
+                        className="w-full text-xs"
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
               
               <Popover>
                 <PopoverTrigger asChild>
@@ -379,14 +420,13 @@ export default function AuditPage() {
               </Popover>
             </div>
 
-            <div className="text-xs grid grid-cols-8 font-semibold text-muted-foreground pt-3 pb-2 border-b">
+            <div className="text-xs grid grid-cols-6 font-semibold text-muted-foreground pt-3 pb-2 border-b">
               <div className="flex items-center gap-1"><Clock className="h-3 w-3" />When</div>
               <div className="flex items-center gap-1"><User className="h-3 w-3" />User</div>
               <div>Role</div>
               <div>Action</div>
               <div className="flex items-center gap-1"><FileText className="h-3 w-3" />Document</div>
               <div></div>
-              <div className="col-span-2">Details</div>
             </div>
             <div className="divide-y">
               {pageSlice.map(e => {
@@ -394,7 +434,7 @@ export default function AuditPage() {
                 const doc = e.docId ? getDocumentById(e.docId) : null;
                 const roleLabel = normalizeRoleLabel((e as any).actorRole) || normalizeRoleLabel(u?.role);
                 return (
-                  <div key={e.id} className="grid grid-cols-8 py-3 text-sm items-center hover:bg-muted/30 transition-colors">
+                  <div key={e.id} className="grid grid-cols-6 py-3 text-sm items-center hover:bg-muted/30 transition-colors">
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock className="h-3 w-3" />
                       {formatAppDateTime(new Date(e.ts))}
@@ -415,16 +455,11 @@ export default function AuditPage() {
                       )}
                     </div>
                     <div></div>
-                    <div className="truncate text-muted-foreground col-span-2 flex items-center gap-1" title={e.note || e.path || undefined}>
-                      {e.note && <span className="text-xs bg-muted px-2 py-0.5 rounded">{e.note}</span>}
-                      {e.path && <span className="text-xs text-muted-foreground">{e.path}</span>}
-                      {!e.note && !e.path && <span>—</span>}
-                    </div>
                   </div>
                 );
               })}
               {pageSlice.length === 0 && (
-                <div className="py-8 text-sm text-muted-foreground">No matching activity.</div>
+                <div className="py-8 text-sm text-muted-foreground col-span-6 text-center">No matching activity.</div>
               )}
             </div>
 

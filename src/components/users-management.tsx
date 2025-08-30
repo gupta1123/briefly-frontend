@@ -295,12 +295,22 @@ export default function UsersManagement() {
   };
 
   const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'systemAdmin': return 'bg-red-100 text-red-800';
-      case 'teamLead': return 'bg-blue-100 text-blue-800';
-      case 'member': return 'bg-green-100 text-green-800';
-      case 'guest': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
+    const roleLower = role.toLowerCase();
+    switch (true) {
+      case roleLower.includes('admin') || roleLower === 'systemadmin':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
+      case roleLower.includes('teamlead') || roleLower.includes('team lead') || roleLower === 'teamlead':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';
+      case roleLower.includes('member') || roleLower === 'member':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
+      case roleLower.includes('guest') || roleLower === 'guest':
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
+      case roleLower.includes('manager') || roleLower === 'manager':
+        return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-400';
+      case roleLower.includes('viewer') || roleLower === 'viewer':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
     }
   };
 
@@ -497,7 +507,7 @@ export default function UsersManagement() {
                             {isAdmin && <SelectItem value="systemAdmin">System Administrator</SelectItem>}
                             {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
                             <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="guest">Guest</SelectItem>
+                            {/* Guest role not allowed for existing users */}
                           </SelectContent>
                         </Select>
                       ) : (

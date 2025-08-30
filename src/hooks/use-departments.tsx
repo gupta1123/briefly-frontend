@@ -47,10 +47,10 @@ export function DepartmentsProvider({
       let list: Department[];
       if (bootstrapData?.departments) {
         list = bootstrapData.departments;
-        console.log('Using bootstrap departments:', list?.map(d => ({ id: d.id, name: d.name, is_member: d.is_member, is_lead: d.is_lead })));
+        // Removed console.log to prevent performance issues
       } else {
         list = await apiFetch<Department[]>(`/orgs/${orgId}/departments?includeMine=1`);
-        console.log('Departments loaded with membership flags:', list?.map(d => ({ id: d.id, name: d.name, is_member: d.is_member, is_lead: d.is_lead })));
+        // Removed console.log to prevent performance issues
       }
       setDepartments(list || []);
 
@@ -60,7 +60,7 @@ export function DepartmentsProvider({
       // Only auto-select if no department is currently selected
       if (!selectedDepartmentId) {
         if (saved && (list || []).some(d => d.id === saved)) {
-          console.log('Using saved department selection:', saved);
+          // Removed console.log to prevent performance issues
           setSelectedDepartmentId(saved);
         } else {
           // Use membership flags from bootstrap or API response
@@ -69,17 +69,17 @@ export function DepartmentsProvider({
             // Prefer department where user is a lead, then first membership
             const leadDept = memberDepts.find(d => d.is_lead);
             const primaryDeptId = leadDept ? leadDept.id : memberDepts[0].id;
-            console.log('Selected primary department from membership flags:', primaryDeptId);
+            // Removed console.log to prevent performance issues
             setSelectedDepartmentId(primaryDeptId);
           } else if ((list || []).length) {
-            console.log('No department memberships, using first available');
+            // Removed console.log to prevent performance issues
             setSelectedDepartmentId(list[0].id);
           }
         }
       } else {
         // Validate existing selection is still valid
         if (selectedDepartmentId && !(list || []).some(d => d.id === selectedDepartmentId)) {
-          console.warn('Selected department no longer exists, resetting selection');
+          // Removed console.warn to prevent performance issues
           setSelectedDepartmentId(null);
         }
       }
@@ -88,8 +88,8 @@ export function DepartmentsProvider({
     }
   }, [bootstrapData]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => onApiContextChange(() => { setTimeout(() => void refresh(), 100); }), [refresh]);
+  useEffect(() => { void refresh(); }, []); // Remove refresh dependency to prevent infinite loops
+  useEffect(() => onApiContextChange(() => { void refresh(); }), []); // Remove refresh dependency
 
   useEffect(() => {
     if (typeof window !== 'undefined' && selectedDepartmentId) {

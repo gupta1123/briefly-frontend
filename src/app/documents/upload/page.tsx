@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { computeContentHash } from '@/lib/utils';
 import { useCategories } from '@/hooks/use-categories';
+import { useUserDepartmentCategories } from '@/hooks/use-department-categories';
 
 const toDataUri = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -41,7 +42,7 @@ type Extracted = {
 
 function UploadContent() {
   const [files, setFiles] = useState<File[]>([]);
-  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string; sizeWarning?: string }[]>([]);
+  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string }[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [carouselMode, setCarouselMode] = useState<boolean>(true);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -54,6 +55,15 @@ function UploadContent() {
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartments();
   const router = useRouter();
   const { categories } = useCategories();
+  const { getCategoriesForDepartment } = useUserDepartmentCategories();
+  
+  // Get categories for the selected department, fallback to org categories
+  const availableCategories = useMemo(() => {
+    if (selectedDepartmentId) {
+      return getCategoriesForDepartment(selectedDepartmentId);
+    }
+    return categories;
+  }, [selectedDepartmentId, getCategoriesForDepartment, categories]);
   
   const saveAllReady = async () => {
     const readyItems = queue.map((item, index) => ({ item, index })).filter(({ item }) => item.status === 'ready' && !item.locked);
@@ -114,27 +124,7 @@ function UploadContent() {
     }
   }, [searchParams]);
 
-  const getFileSizeWarning = (file: File): string | null => {
-    const sizeMB = file.size / (1024 * 1024);
-    const mimeType = file.type || '';
 
-    const limits: Record<string, number> = {
-      'application/pdf': 25,
-      'image/jpeg': 5,
-      'image/png': 5,
-      'image/gif': 3,
-      'application/msword': 10,
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 10,
-      'application/vnd.ms-powerpoint': 15,
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 15,
-    };
-
-    const limit = limits[mimeType] || 5;
-    if (sizeMB > limit) {
-      return `Large file (${sizeMB.toFixed(1)}MB) - AI processing may be skipped`;
-    }
-    return null;
-  };
 
   const onSelect = async (list: FileList | File[]) => {
     const arr = Array.from(list);
@@ -149,7 +139,6 @@ function UploadContent() {
       previewUrl: URL.createObjectURL(f),
       rotation: 0,
       linkMode: 'new' as const,
-      sizeWarning: getFileSizeWarning(f) || undefined,
     })));
     
     // Only dedupe within queue; allow matching existing docs (we will suggest linking as version instead)
@@ -163,10 +152,7 @@ function UploadContent() {
       return true;
     });
     // Ensure all items have the correct types
-    const properlyTyped = filtered.map(item => ({
-      ...item,
-      sizeWarning: item.sizeWarning || undefined,
-    }));
+    const properlyTyped = filtered;
     setQueue(prev => [...prev, ...properlyTyped]);
   };
 
@@ -194,7 +180,6 @@ function UploadContent() {
     const ext = item.file.name.split('.').pop()?.toLowerCase();
     let inferred: Document['type'] = 'PDF';
     if (['png', 'jpg', 'jpeg'].includes(ext || '')) inferred = 'Image';
-    else if (['doc', 'docx', 'ppt', 'pptx'].includes(ext || '')) inferred = 'Word';
     setDocType(inferred);
 
     // simulate upload progress while reading
@@ -241,10 +226,7 @@ function UploadContent() {
           let toastTitle = 'AI processing limited';
           let toastDescription = 'Metadata was prefilled from filename. You can edit before saving.';
 
-          if (status === 413) {
-            toastTitle = 'Large file uploaded';
-            toastDescription = 'File is too large for AI processing. Basic metadata was generated from filename. You can edit details before saving.';
-          } else if (status === 503) {
+          if (status === 503) {
             if (e.data?.error?.includes('timeout')) {
               toastTitle = 'AI processing timeout';
               toastDescription = 'Document took too long to process. Basic metadata was generated. You can edit details before saving.';
@@ -707,8 +689,6 @@ function UploadContent() {
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   {[
                     { type: 'PDF', color: 'bg-red-500/10 text-red-600 border-red-500/20' },
-                    { type: 'DOC/DOCX', color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
-                    { type: 'PPT/PPTX', color: 'bg-orange-500/10 text-orange-600 border-orange-500/20' },
                     { type: 'TXT', color: 'bg-gray-500/10 text-gray-600 border-gray-500/20' },
                     { type: 'MD', color: 'bg-purple-500/10 text-purple-600 border-purple-500/20' },
                     { type: 'JPG', color: 'bg-green-500/10 text-green-600 border-green-500/20' },
@@ -721,16 +701,13 @@ function UploadContent() {
                 </div>
                 <div id="upload-help" className="mt-4 text-xs text-muted-foreground text-center space-y-1">
                   <div>We'll automatically extract metadata and generate a summary for you</div>
-                  <div className="text-orange-600 dark:text-orange-400">
-                    Large files (25MB+ PDFs, 5MB+ images) may skip AI processing for faster upload
-                  </div>
                 </div>
                 <div className="mt-8 flex items-center justify-center gap-3">
                   <input
                     ref={inputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/markdown,image/jpeg,image/png"
+                    accept=".pdf,.txt,.md,.jpg,.jpeg,.png,application/pdf,text/plain,text/markdown,image/jpeg,image/png"
                     className="hidden"
                     onChange={(e) => e.target.files && onSelect(e.target.files)}
                   />
@@ -829,11 +806,6 @@ function UploadContent() {
                           <div className="min-w-0">
                             <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
                             <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
-                            {(item as any).sizeWarning && (
-                              <div className="text-xs text-orange-600 dark:text-orange-400 truncate" title={(item as any).sizeWarning}>
-                                ⚠️ {(item as any).sizeWarning}
-                              </div>
-                            )}
                           </div>
                           <div className="w-40"><Progress value={item.progress} /></div>
                           <div className="flex items-center gap-2">
@@ -974,7 +946,7 @@ function UploadContent() {
                                   <UiSelectValue placeholder="Select category..." />
                                 </UiSelectTrigger>
                                 <UiSelectContent>
-                                  {categories.map((category) => (
+                                  {availableCategories.map((category) => (
                                     <UiSelectItem key={category} value={category}>
                                       {category}
                                     </UiSelectItem>
@@ -1045,11 +1017,6 @@ function UploadContent() {
                         <div className="min-w-0">
                           <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
                           <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
-                          {(item as any).sizeWarning && (
-                            <div className="text-xs text-orange-600 dark:text-orange-400 truncate" title={(item as any).sizeWarning}>
-                              ⚠️ {(item as any).sizeWarning}
-                            </div>
-                          )}
                         </div>
                         <div className="w-40"><Progress value={item.progress} /></div>
                         <div className="flex items-center gap-2">
@@ -1141,7 +1108,7 @@ function UploadContent() {
                               <UiSelectValue placeholder="Select category..." />
                             </UiSelectTrigger>
                             <UiSelectContent>
-                              {categories.map((category) => (
+                              {availableCategories.map((category) => (
                                 <UiSelectItem key={category} value={category}>
                                   {category}
                                 </UiSelectItem>

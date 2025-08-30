@@ -13,7 +13,7 @@ import {
   SidebarGroupContent,
   SidebarSeparator,
 } from './ui/sidebar';
-import { useDocuments } from '@/hooks/use-documents';
+
 import { useAuth } from '@/hooks/use-auth';
 
 const links = [
@@ -26,7 +26,6 @@ const links = [
 
 export default function SidebarNav() {
   const pathname = usePathname();
-  const { documents } = useDocuments();
   const { user } = useAuth();
   const isManager = user?.role === 'systemAdmin' || user?.role === 'teamLead';
   const isAdmin = user?.role === 'systemAdmin';
@@ -50,11 +49,6 @@ export default function SidebarNav() {
                     <span>{label}</span>
                   </Link>
                 </SidebarMenuButton>
-                {href === '/documents' && (
-                  <SidebarMenuBadge aria-hidden className="bg-sidebar-accent text-sidebar-accent-foreground shadow-sm">
-                    {documents.length}
-                  </SidebarMenuBadge>
-                )}
                 {badge && (
                   <SidebarMenuBadge aria-hidden className="bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/30 dark:text-emerald-400 shadow-sm">
                     {badge}

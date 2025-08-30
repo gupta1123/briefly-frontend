@@ -153,6 +153,7 @@ function TeamLeadMemberCards() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
+
   React.useEffect(() => {
     const fetchMembers = async () => {
       try {
@@ -164,6 +165,8 @@ function TeamLeadMemberCards() {
         if (response.error) {
           setError(response.error);
         } else {
+          console.log('📊 [TEAM_LEAD_DASHBOARD] Members received from backend:', response.members?.length || 0);
+          console.log('👥 Member details:', response.members?.map(m => `${m.userId} -> ${m.displayName}`));
           setMembers(response.members || []);
         }
       } catch (err) {
@@ -219,44 +222,113 @@ function TeamLeadMemberCards() {
     );
   }
 
+  // Show all members by default
+  const filteredMembers = members;
+
   return (
     <Card className="rounded-xl border border-border bg-card shadow-sm card-premium">
       <CardHeader>
-        <CardTitle className="text-foreground text-xl font-semibold">Team Member Statistics</CardTitle>
-        <p className="text-sm text-muted-foreground">Track document uploads by your team members</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-foreground text-xl font-semibold">Active Members</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Track document uploads by your team members
+            </p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {members.map((member) => (
-            <Card key={member.userId} className="p-4 hover:shadow-md transition-shadow">
+          {filteredMembers.map((member) => {
+            const hasRecentActivity = member.docsToday > 0 || member.docsYesterday > 0;
+            const hasAnyActivity = member.docsThisWeek > 0;
+            return (
+              <Card
+                key={member.userId}
+                className={`p-4 hover:shadow-md transition-shadow ${
+                  !hasRecentActivity ? 'opacity-75' : ''
+                }`}
+              >
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                    <User className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      hasRecentActivity
+                        ? 'bg-green-100 dark:bg-green-900/30'
+                        : hasAnyActivity
+                        ? 'bg-blue-100 dark:bg-blue-900/30'
+                        : 'bg-gray-100 dark:bg-gray-900/30'
+                    }`}>
+                      <User className={`h-5 w-5 ${
+                        hasRecentActivity
+                          ? 'text-green-600 dark:text-green-400'
+                          : hasAnyActivity
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`} />
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-lg">{member.displayName}</h4>
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-lg">
+                        {member.displayName.startsWith('User ') || member.displayName.length > 20
+                          ? `${member.displayName} (${member.role})`
+                          : member.displayName
+                        }
+                      </h4>
+                      <div className="flex items-center gap-2">
                     <p className="text-sm text-muted-foreground">{member.departmentName}</p>
-                  </div>
+                        {hasRecentActivity ? (
+                          <Badge variant="outline" className="text-xs text-green-600 border-green-200">
+                            Active
+                          </Badge>
+                        ) : hasAnyActivity ? (
+                          <Badge variant="outline" className="text-xs text-blue-600 border-blue-200">
+                            This Week
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-gray-500 border-gray-200">
+                            New Member
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Today</span>
-                    <span className="font-medium text-green-600">{member.docsToday}</span>
+                      <span className={`font-medium ${
+                        member.docsToday > 0 ? 'text-green-600' : 'text-gray-400'
+                      }`}>
+                        {member.docsToday}
+                      </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Yesterday</span>
-                    <span className="font-medium text-blue-600">{member.docsYesterday}</span>
+                      <span className={`font-medium ${
+                        member.docsYesterday > 0 ? 'text-blue-600' : 'text-gray-400'
+                      }`}>
+                        {member.docsYesterday}
+                      </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">This Week</span>
-                    <span className="font-medium text-purple-600">{member.docsThisWeek}</span>
-                  </div>
+                      <span className={`font-medium ${
+                        member.docsThisWeek > 0 ? 'text-purple-600' : 'text-gray-400'
+                      }`}>
+                        {member.docsThisWeek}
+                      </span>
+                    </div>
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
+        {filteredMembers.length === 0 && members.length > 0 && (
+          <div className="text-center py-8 text-muted-foreground">
+            <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium">No team members found</p>
+            <p className="text-sm">Your team appears to be empty</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -592,13 +664,14 @@ function AdminStats() {
           trend="Total storage"
           color="green"
         />
-        <MetricCard
-          title="Active Users"
-          value={stats.users.active}
-          icon={Users}
-          trend={`${stats.users.total} total members`}
-          color="purple"
-        />
+                 {/* Active Users - Commented out for all views as requested */}
+         {/* <MetricCard
+           title="Active Users"
+           value={stats.users.total}
+           icon={Users}
+           trend="All team members"
+           color="purple"
+         /> */}
         <MetricCard
           title="Recent Activity"
           value={stats.activity.recentEvents.length}
