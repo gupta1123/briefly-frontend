@@ -118,6 +118,8 @@ export default function TeamsManagement() {
   const [userQuery, setUserQuery] = React.useState('');
   const [pendingAddUserId, setPendingAddUserId] = React.useState<string>('');
   const [pendingAddRole, setPendingAddRole] = React.useState<'lead'|'member'>('member');
+  const [pendingAddPassword, setPendingAddPassword] = React.useState<string>('');
+  const [setPasswordForExistingUser, setSetPasswordForExistingUser] = React.useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = React.useState<string>('');
   // Add user mode selection
   const [addUserMode, setAddUserMode] = React.useState<'existing' | 'invite' | null>(null);
@@ -176,6 +178,49 @@ export default function TeamsManagement() {
   }, []);
 
   React.useEffect(() => { if (selected) void loadMembers(selected); }, [selected, loadMembers]);
+
+  const removeMember = React.useCallback(async (userId: string) => {
+    if (!selected || operationInProgress) return;
+
+    const orgId = getApiContext().orgId || '';
+    if (!orgId) throw new Error('No organization');
+
+    const originalMembers = [...members];
+    const originalMemberCount = departments.find(d => d.id === selected)?.member_count || 0;
+
+    // Optimistic update
+    setMembers(prev => prev.filter(m => m.userId !== userId));
+    setDepartments(prev => prev.map(d =>
+      d.id === selected ? { ...d, member_count: Math.max(0, (d.member_count || 0) - 1) } : d
+    ));
+
+    setOperationInProgress(`remove-${userId}`);
+
+    try {
+      await apiFetch(`/orgs/${orgId}/departments/${selected}/users/${userId}`, {
+        method: 'DELETE'
+      });
+
+      toast({
+        title: 'Member removed',
+        description: 'User has been removed from the team.',
+      });
+    } catch (error: any) {
+      // Rollback optimistic update
+      setMembers(originalMembers);
+      setDepartments(prev => prev.map(d =>
+        d.id === selected ? { ...d, member_count: originalMemberCount } : d
+      ));
+
+      toast({
+        title: 'Error removing member',
+        description: error.message || 'Failed to remove team member. Please try again.',
+        variant: 'destructive' as any,
+      });
+    } finally {
+      setOperationInProgress(null);
+    }
+  }, [selected, members, departments, operationInProgress]);
 
   const onCreate = async () => {
     const orgId = getApiContext().orgId || '';
@@ -595,17 +640,19 @@ export default function TeamsManagement() {
                       setAddUserMode(null);
                       setPendingAddUserId('');
                       setUserQuery('');
+                      setPendingAddPassword('');
+                      setSetPasswordForExistingUser(false);
                     }}
                   >
                     Back
                   </Button>
                 </div>
             <div className="flex gap-2 items-end">
-              <Input 
+              <Input
                     placeholder="Search users..."
-                className="w-48" 
-                value={userQuery} 
-                onChange={(e)=>setUserQuery(e.target.value)} 
+                className="w-48"
+                value={userQuery}
+                onChange={(e)=>setUserQuery(e.target.value)}
               />
               <Select value={pendingAddUserId} onValueChange={setPendingAddUserId} onOpenChange={async (open:boolean)=>{
                 if (open && orgUsers.length === 0) {
@@ -649,8 +696,8 @@ export default function TeamsManagement() {
                 <SelectContent>
                   <SelectItem value="member">Member</SelectItem>
                   {isAdmin && (
-                    <SelectItem 
-                      value="lead" 
+                    <SelectItem
+                      value="lead"
                       disabled={members.some(member => member.role === 'lead')}
                     >
                       Team Lead {members.some(member => member.role === 'lead') ? '(Already assigned)' : ''}
@@ -658,6 +705,44 @@ export default function TeamsManagement() {
                   )}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Password Setting Section */}
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="setPassword"
+                  checked={setPasswordForExistingUser}
+                  onChange={(e) => setSetPasswordForExistingUser(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="setPassword" className="text-sm font-medium">
+                  Set password for this user
+                </label>
+              </div>
+              {setPasswordForExistingUser && (
+                <div className="flex gap-2 items-end">
+                  <Input
+                    type="password"
+                    placeholder="Enter new password"
+                    value={pendingAddPassword}
+                    onChange={(e) => setPendingAddPassword(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPendingAddPassword('')}
+                    disabled={!pendingAddPassword}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
               <Button onClick={async ()=>{
                 if (!pendingAddUserId || operationInProgress) return;
                 
@@ -689,10 +774,24 @@ export default function TeamsManagement() {
                 }
                 setPendingAddUserId('');
                 setUserQuery('');
+                setPendingAddPassword('');
+                setSetPasswordForExistingUser(false);
                 setAddUserMode(null);
 
                 try {
-                  await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId: pendingAddUserId, role: pendingAddRole } });
+                  // Ensure only valid department roles are sent (department API doesn't support 'guest')
+                  const departmentRole = pendingAddRole === 'lead' || pendingAddRole === 'member' ? pendingAddRole : 'member';
+
+                  // If password is being set, update the user's password first
+                  if (setPasswordForExistingUser && pendingAddPassword.trim()) {
+                    await apiFetch(`/orgs/${orgId}/users/${pendingAddUserId}`, {
+                      method: 'PATCH',
+                      body: { password: pendingAddPassword.trim() }
+                    });
+                  }
+
+                  // Add user to department
+                  await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId: pendingAddUserId, role: departmentRole } });
 
                   // Trigger org users changed event for other components
                   try { window.dispatchEvent(new CustomEvent('org-users-changed')); } catch {}
@@ -736,7 +835,7 @@ export default function TeamsManagement() {
                     Back
                   </Button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
               <Input 
                 placeholder="Invite email"
                 value={inviteEmail}
@@ -748,7 +847,8 @@ export default function TeamsManagement() {
                 onChange={(e)=>setInviteName(e.target.value)}
               />
               <Input 
-                placeholder="Password (optional)"
+                type="password"
+                placeholder="Password (required)"
                 value={invitePassword}
                 onChange={(e)=>setInvitePassword(e.target.value)}
               />
@@ -759,12 +859,13 @@ export default function TeamsManagement() {
                   <SelectItem value="guest">Guest</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="md:col-span-2 flex gap-2 justify-end">
+            </div>
+            <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={()=>{ setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member'); }}>Clear</Button>
                 <Button 
                   onClick={async ()=>{
                     const orgId = getApiContext().orgId || '';
-                    if (!orgId || !inviteEmail.trim() || !selected || operationInProgress) return;
+                    if (!orgId || !inviteEmail.trim() || !invitePassword.trim() || !selected || operationInProgress) return;
                     setInviting(true);
                     setOperationInProgress('invite-user');
                     try {
@@ -774,11 +875,12 @@ export default function TeamsManagement() {
                           email: inviteEmail.trim(),
                           display_name: inviteName.trim() || undefined,
                           role: inviteRole,
-                          password: invitePassword.trim() || undefined,
+                          password: invitePassword.trim(),
                         },
                       });
                       const userId = resp?.user_id || resp?.userId;
                       if (userId) {
+                        // Always add invited users as 'member' to department (regardless of their org role)
                         await apiFetch(`/orgs/${orgId}/departments/${selected}/users`, { method: 'POST', body: { userId, role: 'member' } });
                         setInviteEmail(''); setInviteName(''); setInvitePassword(''); setInviteRole('member');
                             setAddUserMode(null);
@@ -804,12 +906,69 @@ export default function TeamsManagement() {
                       setOperationInProgress(null);
                     }
                   }}
-                  disabled={inviting || !inviteEmail.trim() || operationInProgress === 'invite-user'}
+                  disabled={inviting || !inviteEmail.trim() || !invitePassword.trim() || operationInProgress === 'invite-user'}
                 >{inviting || operationInProgress === 'invite-user' ? 'Inviting...' : 'Invite & Add'}</Button>
               </div>
             </div>
               </div>
             )}
+
+            {/* Members List */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">Team Members ({members.length})</h4>
+              {membersLoading ? (
+                <div className="space-y-3">
+                  <MemberSkeleton />
+                  <MemberSkeleton />
+                  <MemberSkeleton />
+                </div>
+              ) : members.length === 0 ? (
+                <div className="text-center py-6 border-2 border-dashed border-muted rounded-lg">
+                  <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">No members in this team yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {members.map((member) => (
+                    <div key={member.userId} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm flex-shrink-0">
+                          {(member.displayName || member.email || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm truncate">
+                            {member.displayName || 'Unknown User'}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {member.email}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Badge
+                          variant={member.role === 'lead' ? 'default' : 'secondary'}
+                          className="text-xs capitalize"
+                        >
+                          {member.role}
+                        </Badge>
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                            onClick={() => removeMember(member.userId)}
+                            disabled={operationInProgress?.startsWith('remove')}
+                            title="Remove member"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
         </div>
       )}
       {selected && departments.find(d => d.id === selected)?.name === 'Core' && (
