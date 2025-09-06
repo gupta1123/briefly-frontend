@@ -40,6 +40,7 @@ export default function DocumentDetailPage() {
   
   const doc = getDocumentById(params.id);
   const [ocrText, setOcrText] = useState<string>('');
+  const [extractionSummary, setExtractionSummary] = useState<string>('');
   const [loadingExtraction, setLoadingExtraction] = useState<boolean>(false);
   const [referrer, setReferrer] = useState<string | null>(null);
   const loadAttempted = useRef<Set<string>>(new Set());
@@ -108,6 +109,10 @@ export default function DocumentDetailPage() {
           const data: any = await apiFetch(`/orgs/${orgId}/documents/${doc.id}/extraction`);
           console.log('Extraction response:', data);
           setOcrText(String(data.ocrText || ''));
+          try {
+            const sum = String(data?.metadata?.summary || '').trim();
+            if (sum) setExtractionSummary(sum);
+          } catch {}
         } catch (error) {
           console.log('No extraction found:', error);
         }
@@ -470,20 +475,16 @@ export default function DocumentDetailPage() {
                 <div className="text-xs text-muted-foreground mb-2">
                   Available fields: summary={doc.summary ? 'YES' : 'NO'}, description={doc.description ? 'YES' : 'NO'}
                 </div>
-                
-                {doc.summary && (
-                  <div>
-                    <h3 className="font-semibold mb-1">AI Summary (from summary field)</h3>
-                    <p className="text-muted-foreground whitespace-pre-wrap break-words">{doc.summary}</p>
-                  </div>
-                )}
-                
-                {doc.description && !doc.summary && (
-                  <div>
-                    <h3 className="font-semibold mb-1">AI Summary (from description field)</h3>
-                    <p className="text-muted-foreground whitespace-pre-wrap break-words">{doc.description}</p>
-                  </div>
-                )}
+                {(() => {
+                  const displaySummary = (doc.summary || extractionSummary || doc.description || '').trim();
+                  if (!displaySummary) return null;
+                  return (
+                    <div>
+                      <h3 className="font-semibold mb-1">AI Summary</h3>
+                      <p id="extraction-summary-tap" className="text-muted-foreground whitespace-pre-wrap break-words">{displaySummary}</p>
+                    </div>
+                  );
+                })()}
                 {(doc.aiPurpose || (doc.aiKeyPoints && doc.aiKeyPoints.length) || doc.aiContext || doc.aiOutcome) && (
                   <div className="space-y-2">
                     {doc.aiPurpose && <div><span className="font-semibold">Purpose:</span> <span className="break-words">{doc.aiPurpose}</span></div>}
@@ -635,7 +636,7 @@ async function downloadContent(doc: any) {
   } catch (error) {
     console.error('Download failed:', error);
     // Fallback to text content
-    const blob = new Blob([doc.content || doc.summary || ''], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([doc.content || doc.summary || extractionSummary || ''], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -652,7 +653,7 @@ function handleDelete(id: string, removeDocument: (id: string) => void, router: 
 
 function copySummary(doc: any) {
   try {
-    const text = doc.summary || doc.aiPurpose || '';
+    const text = doc.summary || (document.getElementById('extraction-summary-tap') as HTMLDivElement | null)?.innerText || doc.aiPurpose || '';
     if (!text) return;
     navigator.clipboard?.writeText(text);
   } catch {}
