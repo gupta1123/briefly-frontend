@@ -1,22 +1,60 @@
-# Backend and Supabase Setup
+# 📚 Frontend Documentation
 
-This folder contains SQL and planning docs to provision Supabase (Auth, Postgres, Storage) and to guide the Node.js backend.
+This directory contains all documentation and development resources for the Briefly frontend application.
 
-## Order of operations
+## 📁 Structure
 
-1. Create a Supabase project and copy your `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_JWT_SECRET`.
-2. Run `supabase_schema.sql` in the SQL editor to create tables, extensions, indexes.
-3. Run `supabase_policies.sql` to enable RLS and define policies, helper functions, and Storage buckets/policies.
-4. Create a `.env` for the server using `.env.example` in `server/`.
-5. Start the server and test routes.
+```
+docs/
+├── 📁 api/              # API Documentation
+│   ├── backend_api_plan.md      # Backend API specification
+│   └── ingestion_pipeline.md    # Document ingestion pipeline
+├── 📁 guides/           # Development Guides
+│   └── README.md        # General documentation
+├── 📁 setup/            # Setup & Configuration
+│   ├── ACCESS_CREDENTIALS.md   # Access credentials documentation
+│   ├── IP_ALLOWLIST_SETUP.md   # IP allowlist configuration
+│   └── POLAAD_SETUP_README.md  # POLAAD setup guide
+└── 📁 sql-scripts/     # Database Scripts (55+ files)
+    ├── 01_audit_core.sql        # Core audit system
+    ├── supabase_schema.sql      # Main database schema
+    ├── supabase_policies.sql    # RLS policies
+    ├── departments_schema.sql   # Departments setup
+    ├── settings_schema.sql      # Settings configuration
+    └── ... (50+ more SQL files)
+```
 
-## Files
+## 🔧 Script Categories
 
-- `supabase_schema.sql`: Tables, extensions, indexes, and base schema.
-- `supabase_policies.sql`: RLS policies, helper functions, and storage bucket entries/policies.
-- `backend_api_plan.md`: API surface, contracts, and background job plan.
+### **Core Schema**
+- `supabase_schema.sql` - Main database schema
+- `supabase_policies.sql` - Row Level Security policies
+- `departments_schema.sql` - Department management
+- `settings_schema.sql` - Application settings
 
-## Notes
+### **Migrations & Fixes**
+- `fix_*.sql` - Bug fixes and corrections
+- `debug_*.sql` - Diagnostic scripts
+- `performance_optimization*.sql` - Performance improvements
 
-- This design expects role-based access using Supabase Auth and row-level security (RLS). Roles live in `app_users.role` and are resolved via a helper SQL function for policies.
-- Storage is split into three buckets: `documents` (originals), `previews` (thumbnails), `extractions` (cached OCR/metadata JSON). Signed uploads should be used from the client; the server finalizes DB rows.
+### **Feature Scripts**
+- `01_audit_core.sql` - Audit system
+- `07_agent_system.sql` - AI agent system
+- `folder_*.sql` - Folder management
+- `roles_*.sql` - Role-based access control
+
+### **Setup & Maintenance**
+- `create_polaad_*.sql` - Organization setup
+- `cleanup_*.sql` - Maintenance scripts
+- `verify_*.sql` - Verification scripts
+
+## 🚀 Quick Access
+
+- **Setup Guide**: [`setup/IP_ALLOWLIST_SETUP.md`](setup/IP_ALLOWLIST_SETUP.md)
+- **API Docs**: [`api/backend_api_plan.md`](api/backend_api_plan.md)
+- **Core Schema**: [`sql-scripts/supabase_schema.sql`](sql-scripts/supabase_schema.sql)
+- **Credentials**: [`setup/ACCESS_CREDENTIALS.md`](setup/ACCESS_CREDENTIALS.md)
+
+---
+
+**Note**: SQL scripts are organized chronologically and by purpose. Always check dependencies before running scripts in production.

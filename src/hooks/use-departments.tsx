@@ -89,7 +89,10 @@ export function DepartmentsProvider({
   }, [bootstrapData]);
 
   useEffect(() => { void refresh(); }, []); // Remove refresh dependency to prevent infinite loops
-  useEffect(() => onApiContextChange(() => { void refresh(); }), []); // Remove refresh dependency
+  useEffect(() => {
+    const cleanup = onApiContextChange(() => { void refresh(); });
+    return () => { cleanup(); };
+  }, []); // Remove refresh dependency
 
   useEffect(() => {
     if (typeof window !== 'undefined' && selectedDepartmentId) {

@@ -120,8 +120,8 @@ export function useDepartmentCategoriesById(departmentId?: string) {
 
     // Try to get from bootstrap data first
     const department = bootstrapData?.departments?.find(d => d.id === departmentId);
-    if (department?.categories) {
-      setCategories(department.categories);
+    if (department && 'categories' in department && department.categories) {
+      setCategories(department.categories as string[]);
       return;
     }
 
@@ -160,7 +160,7 @@ export function useUserDepartmentCategories() {
     if (!bootstrapData?.departments) return {};
     
     return bootstrapData.departments.reduce((acc, dept) => {
-      acc[dept.id] = dept.categories || DEFAULT_CATEGORIES;
+      acc[dept.id] = ('categories' in dept && dept.categories) ? dept.categories as string[] : DEFAULT_CATEGORIES;
       return acc;
     }, {} as Record<string, string[]>);
   }, [bootstrapData]);

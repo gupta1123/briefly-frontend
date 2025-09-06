@@ -74,9 +74,12 @@ export function onApiContextChange(cb: Cb) {
 export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Promise<T> {
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(opts.headers || {}),
   };
+  // Only set JSON content type when a body is provided (avoids Fastify empty JSON body error)
+  if (opts.body !== undefined && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (currentOrgId && !headers['X-Org-Id']) headers['X-Org-Id'] = currentOrgId;
   
   // Check cache for GET requests only
@@ -101,7 +104,9 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
   const res = await fetch(url, {
     method,
     headers,
-    body: opts.body && headers['Content-Type'] === 'application/json' ? JSON.stringify(opts.body) : (opts.body as any),
+    body: opts.body !== undefined
+      ? (headers['Content-Type'] === 'application/json' ? JSON.stringify(opts.body) : (opts.body as any))
+      : undefined,
     signal: opts.signal,
   });
   if (!res.ok) {

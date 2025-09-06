@@ -268,7 +268,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => off();
+    return () => { off(); };
   }, []); // Remove refresh dependency to prevent infinite loops
 
   // Refresh documents when selected department changes

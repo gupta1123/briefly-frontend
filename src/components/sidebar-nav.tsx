@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Folder, MessageSquareText, CloudUpload, Activity } from 'lucide-react';
+import { LayoutDashboard, Folder, MessageSquareText, CloudUpload, Activity, Trash2, Wrench, PlusSquare } from 'lucide-react';
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -24,11 +24,50 @@ const links = [
   { href: '/audit', label: 'Activity', Icon: Activity },
 ];
 
+const adminLinks = [
+  { href: '/recycle-bin', label: 'Recycle Bin', Icon: Trash2 },
+  { href: '/audit', label: 'Activity', Icon: Activity },
+];
+
 export default function SidebarNav() {
   const pathname = usePathname();
   const { user } = useAuth();
   const isManager = user?.role === 'systemAdmin' || user?.role === 'teamLead';
   const isAdmin = user?.role === 'systemAdmin';
+  const isOps = pathname?.startsWith('/ops');
+
+  if (isOps) {
+    const opsLinks = [
+      { href: '/ops', label: 'Ops Overview', Icon: LayoutDashboard },
+      { href: '/ops/new', label: 'Create Org', Icon: PlusSquare },
+      // Future: incidents, metrics, settings
+      // { href: '/ops/incidents', label: 'Incidents', Icon: Activity },
+    ];
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Ops</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {opsLinks.map(({ href, label, Icon }) => (
+              <SidebarMenuItem key={href}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === href}
+                  tooltip={label}
+                  className="hover-premium focus-premium data-[active=true]:bg-sidebar-accent data-[active=true]:shadow-sm"
+                >
+                  <Link href={href}>
+                    <Icon />
+                    <span>{label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
 
   return (
     <>
@@ -67,11 +106,9 @@ export default function SidebarNav() {
             <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Admin</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {links.slice(4).filter(({ href }) => {
-                  // Only show Activity (audit) link for systemAdmin, not teamLead
-                  if (href === '/audit') {
-                    return isAdmin;
-                  }
+                {(isAdmin ? adminLinks : links.slice(4)).filter(({ href }) => {
+                  // Team leads should not see audit
+                  if (!isAdmin && href === '/audit') return false;
                   return true;
                 }).map(({ href, label, Icon }) => (
                   <SidebarMenuItem key={href}>
