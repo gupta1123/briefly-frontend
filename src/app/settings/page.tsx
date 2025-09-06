@@ -88,6 +88,8 @@ export default function SettingsPage() {
   const { policy, setEnabled, addIp, removeIp, replaceIps, getCurrentIp } = useSecurity();
   const { settings: personalSettings, updateSettings: updatePersonalSettings } = useSettings();
   const [categories, setCategories] = React.useState<string[]>([]);
+  const [summaryPrompt, setSummaryPrompt] = React.useState<string>('');
+  const [summaryLoading, setSummaryLoading] = React.useState<boolean>(true);
   
   // Optimistic updates with error handling and rollback
   const applyColor = async (value: string) => {
@@ -156,6 +158,26 @@ export default function SettingsPage() {
     };
   }, [isAuthenticated, isAdmin, isTeamLead, canManageOrgMembers]);
 
+  // Load org private settings (summary prompt)
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin) {
+      setSummaryLoading(false);
+      return;
+    }
+    (async () => {
+      try {
+        const orgId = getApiContext().orgId || '';
+        if (!orgId) { setSummaryLoading(false); return; }
+        const priv = await apiFetch<any>(`/orgs/${orgId}/private-settings`);
+        setSummaryPrompt(priv?.summary_prompt || '');
+      } catch {
+        // silent
+      } finally {
+        setSummaryLoading(false);
+      }
+    })();
+  }, [isAuthenticated, isAdmin]);
+
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-6">
@@ -205,6 +227,47 @@ export default function SettingsPage() {
               <DepartmentCategoriesManagement
                 departments={bootstrapData?.departments || []}
               />
+            )}
+          </CardContent>
+        </Card>
+        <div className="h-4" />
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">AI Summary Prompt <Badge variant="outline">Admin Only</Badge></CardTitle>
+            <p className="text-sm text-muted-foreground">Customize how AI summarizes documents for this organization. Only the summary changes; extracted metadata stays the same.</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {summaryLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-32 w-full" />
+                <div className="flex justify-end"><Skeleton className="h-9 w-24" /></div>
+              </div>
+            ) : (
+              <>
+                <label className="text-sm">Summary prompt</label>
+                <textarea
+                  className="w-full rounded-md border bg-background p-3 text-sm min-h-[140px]"
+                  placeholder="Write a concise summary (<= 300 words) of the document text. Focus on essential facts and outcomes."
+                  value={summaryPrompt}
+                  onChange={(e) => setSummaryPrompt(e.target.value)}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button variant="outline" onClick={() => {
+                    setSummaryPrompt('Write a concise summary (<= 300 words) of the document text. Focus on essential facts and outcomes.');
+                  }}>Reset</Button>
+                  <Button onClick={async () => {
+                    const orgId = getApiContext().orgId || '';
+                    if (!orgId) return;
+                    try {
+                      await apiFetch(`/orgs/${orgId}/private-settings`, { method: 'PUT', body: { summary_prompt: summaryPrompt } });
+                      toast({ title: 'Saved', description: 'Summary prompt updated for this org.' });
+                    } catch (error: any) {
+                      toast({ title: 'Failed to save', description: error?.message || 'Please try again.', variant: 'destructive' });
+                    }
+                  }}>Save</Button>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
