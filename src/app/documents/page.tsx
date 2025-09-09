@@ -62,9 +62,9 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 }
 
 function DocumentsPageContent() {
-  const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments } = useDocuments();
+  const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments, refresh } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
-  const { hasRoleAtLeast } = useAuth();
+  const { hasRoleAtLeast, hasPermission } = useAuth();
   const searchParams = useSearchParams();
   
   // Global debug: Log when departments vs documents are loaded
@@ -77,6 +77,21 @@ function DocumentsPageContent() {
       selectedDepartmentId
     });
   }, [departments.length, documents.length, departmentsLoading, isLoading, selectedDepartmentId]);
+  
+  // Listen for document deletion events and refresh the list
+  useEffect(() => {
+    const handleDocumentDeleted = () => {
+      // Refresh the documents list when a document is deleted
+      refresh();
+    };
+    
+    window.addEventListener('documentDeleted', handleDocumentDeleted);
+    
+    return () => {
+      window.removeEventListener('documentDeleted', handleDocumentDeleted);
+    };
+  }, [refresh]);
+  
   const [path, setPath] = useState<string[]>([]);
   
   // Initialize path from URL parameters on mount
@@ -283,6 +298,8 @@ function DocumentsPageContent() {
     setSelectedIds(new Set());
     setSelectAll(false);
     setConfirmBulkDeleteOpen(false);
+    // Refresh the documents list to ensure UI updates immediately
+    setTimeout(() => refresh(), 100);
   };
 
   const handleSingleDelete = () => {
@@ -290,6 +307,8 @@ function DocumentsPageContent() {
       removeDocument(documentToDelete.id);
       setDocumentToDelete(null);
       setConfirmDeleteOpen(false);
+      // Refresh the documents list to ensure UI updates immediately
+      setTimeout(() => refresh(), 100);
     }
   };
 
@@ -501,7 +520,7 @@ function DocumentsPageContent() {
                 </DialogContent>
                 </Dialog>
               )}
-              {hasRoleAtLeast('member') && (
+              {hasPermission('documents.delete') && (
                 <Button variant="destructive" onClick={() => setConfirmBulkDeleteOpen(true)}>Delete</Button>
               )}
             </div>
@@ -611,7 +630,7 @@ function DocumentsPageContent() {
                         })()}
                       </div>
                     </div>
-                    {hasRoleAtLeast('member') && (
+                    {hasPermission('documents.delete') && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -784,7 +803,7 @@ function DocumentsPageContent() {
                           </Link>
                         )}
                         <Link href={`/documents/${d.id}`} className="text-primary hover:underline">View</Link>
-                        {hasRoleAtLeast('member') && (
+                        {hasPermission('documents.delete') && (
                           <Button 
                             variant="ghost" 
                             size="sm" 

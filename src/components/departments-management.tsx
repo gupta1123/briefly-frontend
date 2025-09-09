@@ -11,7 +11,7 @@ type Department = { id: string; org_id: string; name: string; lead_user_id?: str
 type OrgUser = { userId: string; displayName?: string | null; email?: string | null };
 
 export default function DepartmentsManagement() {
-  const { hasRoleAtLeast } = useAuth();
+  const { hasRoleAtLeast, hasPermission } = useAuth();
   const [departments, setDepartments] = React.useState<Department[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
@@ -94,7 +94,7 @@ export default function DepartmentsManagement() {
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted-foreground">{departments.length} departments</div>
-          {hasRoleAtLeast('systemAdmin') && (!creating ? (
+          {hasPermission('org.update_settings') && (!creating ? (
             <Button onClick={() => setCreating(true)}>New Department</Button>
           ) : (
             <div className="flex gap-2 items-end">
@@ -119,13 +119,13 @@ export default function DepartmentsManagement() {
               {departments.map(dept => (
                 <div key={dept.id} className={`border rounded-md p-3 ${selected === dept.id ? 'ring-1 ring-primary' : ''}`}>
                   <div className="flex items-center justify-between gap-2">
-                    {hasRoleAtLeast('systemAdmin') ? (
+                    {hasPermission('org.update_settings') ? (
                       <Input defaultValue={dept.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== dept.name) onRename(dept, v); }} />
                     ) : (
                       <div className="text-sm font-medium">{dept.name}</div>
                     )}
                     <div className="flex items-center gap-2">
-                      {hasRoleAtLeast('systemAdmin') && (
+                      {hasPermission('org.update_settings') && (
                         <>
                           <Select value={(dept.color || 'default') as any} onValueChange={(v)=>onSetColor(dept, v)}>
                             <SelectTrigger className="w-[120px]"><SelectValue placeholder="Color" /></SelectTrigger>

@@ -24,7 +24,7 @@ export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents, refresh } = useDocuments();
-  const { hasRoleAtLeast, isLoading: authLoading, user } = useAuth();
+  const { hasRoleAtLeast, hasPermission, isLoading: authLoading, user } = useAuth();
   const { departments } = useDepartments();
   const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -306,8 +306,8 @@ export default function DocumentDetailPage() {
     } else {
       backHref = '/documents';
       backLabel = 'Back to Documents';
-    }
   }
+}
 
   return (
     <AppLayout>
@@ -353,18 +353,21 @@ export default function DocumentDetailPage() {
                 const docDeptId = (doc as any).departmentId || (doc as any).department_id || null;
                 const isAdmin = user?.role === 'systemAdmin';
                 const canEdit = hasRoleAtLeast('member') && (isAdmin || (docDeptId && myDeptIds.has(docDeptId)));
+                const canDelete = canEdit && hasPermission('documents.delete');
                 return canEdit ? (
-                <>
-                  <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc)}>
-                    <Download className="h-4 w-4" /> Download
-                  </Button>
-                  <Button variant="destructive" size="sm" className="gap-2" onClick={() => setConfirmDeleteOpen(true)}>
-                    <Trash2 className="h-4 w-4" /> Delete
-                  </Button>
-                  <Button asChild size="sm" className="gap-2">
-                    <Link href={`/documents/${doc.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link>
-                  </Button>
-                </>
+                  <>
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc, extractionSummary)}>
+                      <Download className="h-4 w-4" /> Download
+                    </Button>
+                    {canDelete && (
+                      <Button variant="destructive" size="sm" className="gap-2" onClick={() => setConfirmDeleteOpen(true)}>
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </Button>
+                    )}
+                    <Button asChild size="sm" className="gap-2">
+                      <Link href={`/documents/${doc.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link>
+                    </Button>
+                  </>
                 ) : null;
               })()}
               {/* Removed "Ask about this" button per requirement */}
@@ -609,7 +612,7 @@ export default function DocumentDetailPage() {
   );
 }
 
-async function downloadContent(doc: any) {
+async function downloadContent(doc: any, extractionSummary?: string) {
   try {
     const { orgId } = getApiContext();
     if (!orgId) return;
@@ -636,7 +639,7 @@ async function downloadContent(doc: any) {
   } catch (error) {
     console.error('Download failed:', error);
     // Fallback to text content
-    const blob = new Blob([doc.content || doc.summary || extractionSummary || ''], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([doc.content || doc.summary || (extractionSummary || '')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -648,6 +651,11 @@ async function downloadContent(doc: any) {
 
 function handleDelete(id: string, removeDocument: (id: string) => void, router: any) {
   removeDocument(id);
+  // Refresh the documents list to ensure UI updates immediately
+  if (typeof window !== 'undefined') {
+    // Dispatch a custom event to notify other parts of the app
+    window.dispatchEvent(new CustomEvent('documentDeleted', { detail: { id } }));
+  }
   router.push('/documents');
 }
 

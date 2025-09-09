@@ -515,8 +515,18 @@ function UploadContent() {
     if (item.linkMode === 'version' && item.baseId) {
       console.log('🔍 Linking as new version to document:', item.baseId);
       const created = await linkAsNewVersion(item.baseId, newDoc as any);
+      console.log('✅ Version linked successfully:', created);
+      console.log('📋 Linked document ID:', created?.id);
+      console.log('📋 Linked document keys:', Object.keys(created || {}));
+
+      // Validate that we have the required document ID
+      if (!created || !created.id) {
+        throw new Error(`Version linking failed: no ID returned. Created object: ${JSON.stringify(created)}`);
+      }
+
       try {
         const orgId = getApiContext().orgId || '';
+        console.log('🔍 Finalizing upload for versioned document:', created.id);
         await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
           method: 'POST',
           body: {
@@ -545,7 +555,14 @@ function UploadContent() {
       });
       const created = await addDocument(newDoc);
       console.log('✅ Document created successfully:', created);
-      
+      console.log('📋 Created document ID:', created?.id);
+      console.log('📋 Created document keys:', Object.keys(created || {}));
+
+      // Validate that we have the required document ID
+      if (!created || !created.id) {
+        throw new Error(`Document creation failed: no ID returned. Created object: ${JSON.stringify(created)}`);
+      }
+
       // Finalize file info for created row
       try {
         const orgId = getApiContext().orgId || '';

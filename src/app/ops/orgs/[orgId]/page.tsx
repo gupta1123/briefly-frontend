@@ -28,7 +28,7 @@ export default function OrgOpsPage() {
   const [users, setUsers] = useState<any[] | null>(null);
   const [newAdmin, setNewAdmin] = useState('');
   const [leadInputs, setLeadInputs] = useState<Record<string, string>>({});
-  const [invite, setInvite] = useState({ email: '', role: 'member', deptId: '', deptRole: 'member' });
+  const [invite, setInvite] = useState({ email: '', role: 'member', deptId: '', deptRole: 'member', password: '' });
   const [newTeam, setNewTeam] = useState({ name: '', leadEmail: '' });
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -306,6 +306,7 @@ export default function OrgOpsPage() {
                 <div className="font-semibold mb-2">Invite/Add by Email</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                   <input className="border rounded px-2 py-1" placeholder="email" value={invite.email} onChange={e => setInvite({ ...invite, email: e.target.value })} />
+                  <input className="border rounded px-2 py-1" type="password" placeholder="password (optional)" value={invite.password} onChange={e => setInvite({ ...invite, password: e.target.value })} />
                   <select className="border rounded px-2 py-1" value={invite.role} onChange={e => setInvite({ ...invite, role: e.target.value })}>
                     <option value="member">member</option>
                     <option value="teamLead">teamLead</option>
@@ -320,14 +321,42 @@ export default function OrgOpsPage() {
                     <option value="lead">team lead</option>
                   </select>
                 </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {invite.password ? 'User will be created with this password (no email sent)' : 'User will receive an email invitation to set their password'}
+                </div>
                 <div className="mt-2">
-                  <button className="border px-3 py-1 rounded" onClick={async () => {
-                    if (!invite.email.includes('@')) { alert('Enter valid email'); return; }
-                    try {
-                      await apiFetch(`/ops/orgs/${data.orgId}/users/invite`, { method: 'POST', body: { email: invite.email, role: invite.role, departmentId: invite.deptId || undefined, deptRole: invite.deptRole } });
-                      setMsg('User invited/added'); setInvite({ email: '', role: 'member', deptId: '', deptRole: 'member' }); await load();
-                    } catch (e: any) { alert(e?.message || 'Failed'); }
-                  }}>Invite/Add</button>
+                  <button 
+                    className="border px-3 py-1 rounded" 
+                    onClick={async () => {
+                      if (!invite.email.includes('@')) { 
+                        alert('Enter valid email'); 
+                        return; 
+                      }
+                      try {
+                        const response: any = await apiFetch(`/ops/orgs/${data.orgId}/users/invite`, { 
+                          method: 'POST', 
+                          body: { 
+                            email: invite.email, 
+                            role: invite.role, 
+                            departmentId: invite.deptId || undefined, 
+                            deptRole: invite.deptRole, 
+                            password: invite.password || undefined 
+                          } 
+                        });
+                        if (response.userWasCreated) {
+                          setMsg('User created with password - no email sent');
+                        } else {
+                          setMsg('User invited via email to set password');
+                        }
+                        setInvite({ email: '', role: 'member', deptId: '', deptRole: 'member', password: '' }); 
+                        await load();
+                      } catch (e: any) { 
+                        alert(e?.message || 'Failed'); 
+                      }
+                    }}
+                  >
+                    Invite/Add
+                  </button>
                 </div>
               </div>
               <div className="border rounded p-3">

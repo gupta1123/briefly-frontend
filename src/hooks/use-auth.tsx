@@ -42,6 +42,7 @@ type AuthContextValue = {
   signOut: () => void;
   isLoading: boolean;
   hasRoleAtLeast: (role: Role) => boolean;
+  hasPermission: (permission: string) => boolean;
 };
 
 const STORAGE_KEY = 'docustore_auth_v1';
@@ -240,6 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return order.indexOf(user.role) >= order.indexOf(role);
   }, [user]);
 
+  const hasPermission = useCallback((permission: string) => {
+    if (!bootstrapData?.permissions) return false;
+    return !!bootstrapData.permissions[permission];
+  }, [bootstrapData]);
+
   // Auto-logout when guest expiry passes (client-side safeguard; server should also enforce)
   // Optimized expiration check - only check when needed
   useEffect(() => {
@@ -269,8 +275,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signOut,
     isLoading,
-    hasRoleAtLeast
-  }), [user, bootstrapData, signIn, signOut, isLoading, hasRoleAtLeast]);
+    hasRoleAtLeast,
+    hasPermission
+  }), [user, bootstrapData, signIn, signOut, isLoading, hasRoleAtLeast, hasPermission]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

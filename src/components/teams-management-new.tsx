@@ -23,6 +23,7 @@ import {
   X,
   Key
 } from 'lucide-react';
+import { clearCacheForEndpoint } from '@/lib/api';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -363,6 +364,12 @@ export default function TeamsManagementNew() {
       setAddMemberMode(null);
       setShowAddMember(false);
 
+      // Explicitly clear cache and refresh data
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
+      
       // Refresh data
       await loadTeamMembers(selectedTeamId);
       await loadTeams();
@@ -375,6 +382,11 @@ export default function TeamsManagementNew() {
         variant: 'destructive'
       });
       // Revert optimistic update
+      // Clear cache before reloading to ensure we get fresh data
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
       await loadTeamMembers(selectedTeamId);
     } finally {
       setOperationInProgress(null);
@@ -439,6 +451,12 @@ export default function TeamsManagementNew() {
         setAddMemberMode(null);
         setShowAddMember(false);
 
+        // Explicitly clear cache and refresh data
+        const currentOrgId = getApiContext().orgId || '';
+        if (currentOrgId && selectedTeamId) {
+          clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+        }
+
         // Refresh data
         await loadTeamMembers(selectedTeamId);
         await loadTeams();
@@ -450,6 +468,13 @@ export default function TeamsManagementNew() {
         description: 'Failed to invite user',
         variant: 'destructive'
       });
+      // Clear cache before reloading to ensure we get fresh data
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
+      // Reload team members to revert optimistic update
+      await loadTeamMembers(selectedTeamId);
     } finally {
       setInviting(false);
       setOperationInProgress(null);
@@ -567,7 +592,11 @@ export default function TeamsManagementNew() {
         description: 'Member details updated successfully'
       });
 
-      // Refresh member data to get updated display name from server
+      // Explicitly clear cache and refresh member data
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
       if (selectedTeamId) {
         await loadTeamMembers(selectedTeamId);
       }
@@ -581,6 +610,15 @@ export default function TeamsManagementNew() {
         description: 'Failed to update member role',
         variant: 'destructive'
       });
+      // Clear cache before reloading to ensure we get fresh data
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
+      // Reload team members to revert optimistic update
+      if (selectedTeamId) {
+        await loadTeamMembers(selectedTeamId);
+      }
     } finally {
       setOperationInProgress(null);
     }
@@ -603,6 +641,12 @@ export default function TeamsManagementNew() {
         description: `${member.displayName || member.email || 'Member'} removed from team`
       });
 
+      // Explicitly clear cache
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
+
       // Update local state
       setMembers(prev => prev.filter(m => m.userId !== member.userId));
 
@@ -616,6 +660,11 @@ export default function TeamsManagementNew() {
         description: 'Failed to remove member from team',
         variant: 'destructive'
       });
+      // Clear cache to ensure fresh data on reload
+      const currentOrgId = getApiContext().orgId || '';
+      if (currentOrgId && selectedTeamId) {
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+      }
     } finally {
       setOperationInProgress(null);
     }
@@ -627,6 +676,13 @@ export default function TeamsManagementNew() {
       loadOrgUsers();
     }
   }, [showAddMember, addMemberMode, loadOrgUsers]);
+
+  // Load team members when selected team changes
+  React.useEffect(() => {
+    if (selectedTeamId) {
+      loadTeamMembers(selectedTeamId);
+    }
+  }, [selectedTeamId, loadTeamMembers]);
 
   // Filter teams based on search
   const filteredTeams = departments.filter(team =>

@@ -19,7 +19,7 @@ type BinDoc = {
 };
 
 export default function RecycleBinPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasPermission } = useAuth();
   const [items, setItems] = useState<BinDoc[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -78,9 +78,11 @@ export default function RecycleBinPage() {
                 <Button size="sm" variant="outline" onClick={() => restore(d.id)} disabled={loading}>
                   <RotateCcw className="h-4 w-4 mr-1" /> Restore
                 </Button>
-                <Button size="sm" variant="destructive" onClick={() => del(d.id)} disabled={loading}>
-                  <Trash2 className="h-4 w-4 mr-1" /> Delete
-                </Button>
+                {hasPermission('documents.delete') && (
+                  <Button size="sm" variant="destructive" onClick={() => del(d.id)} disabled={loading}>
+                    <Trash2 className="h-4 w-4 mr-1" /> Delete
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

@@ -155,8 +155,32 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
     
     setCachedResponse(cacheKey, result, ttl);
   }
+  // Clear cache for related endpoints when modifying data
+  else if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && res.ok) {
+    // Clear cache entries that might be affected by this modification
+    const orgId = headers['X-Org-Id'] || currentOrgId;
+    if (orgId) {
+      // Clear cache for endpoints that might be affected by this change
+      for (const [key] of cache) {
+        if (key.startsWith(`${orgId}:`) && 
+            (key.includes('/departments/') || key.includes('/users/') || 
+             key.includes('/departments') || key.includes('/users'))) {
+          cache.delete(key);
+        }
+      }
+    }
+  }
   
   return result;
+}
+
+// Function to explicitly clear cache for a specific endpoint
+export function clearCacheForEndpoint(path: string): void {
+  const orgId = currentOrgId;
+  if (orgId) {
+    const cacheKey = getCacheKey(path, { 'X-Org-Id': orgId });
+    cache.delete(cacheKey);
+  }
 }
 
 // SSE post utility for streaming chat responses
