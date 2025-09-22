@@ -1,7 +1,8 @@
 "use client";
 
 import AppLayout from '@/components/layout/app-layout';
-import Chatbot from '@/components/chatbot';
+import Chatbot, { ChatContext } from '@/components/chatbot';
+import { ScopePicker } from '@/components/scope-picker';
 import { useDocuments } from '@/hooks/use-documents';
 import { useSearchParams } from 'next/navigation';
 import { useMemo, useState, Suspense } from 'react';
@@ -16,6 +17,9 @@ function ChatContent() {
   const docId = searchParams?.get('docId') || '';
   const [includeLinked, setIncludeLinked] = useState(true);
   const [entityScope, setEntityScope] = useState('');
+  // Streaming removed: always use REST
+  const restMode = true;
+  const [ctx, setCtx] = useState<ChatContext>({ scope: docId ? 'doc' : 'org', docId: docId || undefined, includeLinked: true, includeVersions: true, includeSubfolders: true });
 
   const selected = useMemo(() => {
     if (!docId) return documents;
@@ -54,6 +58,10 @@ function ChatContent() {
         />
         <div className="flex-1 px-3 md:px-6">
           <div className="h-full">
+            {/* Scope picker */}
+            <div className="mb-3 space-y-3">
+              <ScopePicker initialDocId={docId} value={ctx} onChange={(next) => setCtx(next)} />
+            </div>
             {docId && (
               <div className="mb-3 flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-muted-foreground mr-2">Scope:</span>
@@ -63,7 +71,7 @@ function ChatContent() {
                 ))}
               </div>
             )}
-            <Chatbot documents={selected} embed />
+            <Chatbot documents={selected} embed context={ctx} />
           </div>
         </div>
       </div>

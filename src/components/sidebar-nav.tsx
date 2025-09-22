@@ -27,6 +27,7 @@ const links = [
 const adminLinks = [
   { href: '/recycle-bin', label: 'Recycle Bin', Icon: Trash2 },
   { href: '/audit', label: 'Activity', Icon: Activity },
+  { href: '/test-agent', label: 'Chat Bot', Icon: Wrench },
 ];
 
 export default function SidebarNav() {

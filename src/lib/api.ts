@@ -1,3 +1,6 @@
+import type { ApiOptions } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+
 export type ApiOptions = {
   method?: string;
   headers?: Record<string, string>;
@@ -95,7 +98,6 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
   
   // Attach Supabase JWT automatically when available (client-side only)
   try {
-    const { supabase } = await import('@/lib/supabase');
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
     if (token && !headers['Authorization']) headers['Authorization'] = `Bearer ${token}`;
@@ -162,9 +164,14 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
     if (orgId) {
       // Clear cache for endpoints that might be affected by this change
       for (const [key] of cache) {
-        if (key.startsWith(`${orgId}:`) && 
-            (key.includes('/departments/') || key.includes('/users/') || 
-             key.includes('/departments') || key.includes('/users'))) {
+        const needsBust =
+          key.startsWith(`${orgId}:`) && (
+            key.includes('/departments/') ||
+            key.includes('/users/') ||
+          key.includes('/recycle-bin') ||
+          key.includes('/documents')
+        );
+        if (needsBust) {
           cache.delete(key);
         }
       }
@@ -183,7 +190,6 @@ export function clearCacheForEndpoint(path: string): void {
   }
 }
 
-// SSE post utility for streaming chat responses
 // SSE post utility for streaming chat responses with optional cancellation support
 export async function ssePost(
   path: string,
@@ -194,7 +200,6 @@ export async function ssePost(
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   try {
-    const { supabase } = await import('@/lib/supabase');
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -236,10 +241,17 @@ export async function ssePost(
         let data = '';
         for (const line of lines) {
           if (line.startsWith('event:')) event = line.slice(6).trim();
-          if (line.startsWith('data:')) data += line.slice(5).trim();
+          else if (line.startsWith('data:')) {
+            if (data !== '') data += '\n';  // Add newline between data lines
+            data += line.slice(5).trim();  // Trim to remove leading space
+          }
+          // For continuation lines that don't start with event: or data:, 
+          // append to the current data with a newline
+          else if (data !== '' && line.trim() !== '') {
+            data += '\n' + line;
+          }
         }
-        try { onEvent({ event, data: JSON.parse(data) }); }
-        catch { onEvent({ event, data }); }
+        try { onEvent({ event, data: JSON.parse(data) }); } catch { onEvent({ event, data }); }
         if (event === 'end') { seenEnd = true; aborted = true; break; }
       }
       if (aborted) break;

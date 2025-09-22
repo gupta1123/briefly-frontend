@@ -303,12 +303,10 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     if (!orgId) throw new Error('No organization selected');
     const response = await apiFetch(`/orgs/${orgId}/documents/${id}`, { method: 'DELETE' });
     setDocuments(prev => prev.filter(d => d.id !== id));
-    
-    // Dispatch a custom event to notify other parts of the app about the deletion
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('documentDeleted', { detail: { id, response } }));
     }
-    
+
     return response;
   }, []);
 

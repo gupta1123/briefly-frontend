@@ -42,7 +42,7 @@ type Extracted = {
 
 function UploadContent() {
   const [files, setFiles] = useState<File[]>([]);
-  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string }[]>([]);
+  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } }[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [carouselMode, setCarouselMode] = useState<boolean>(true);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -208,9 +208,9 @@ function UploadContent() {
       // We'll only store file location on Save to avoid orphan rows in case user cancels
 
       // 3) Ask backend AI to analyze from signed Storage URL
-      let analyzeResp: { ocrText: string; metadata: any };
+      let analyzeResp: { ocrText: string; metadata: any; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } };
       try {
-        analyzeResp = await apiFetch<{ ocrText: string; metadata: any }>(`/orgs/${orgId}/uploads/analyze`, {
+        analyzeResp = await apiFetch<{ ocrText: string; metadata: any; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } }>(`/orgs/${orgId}/uploads/analyze`, {
           method: 'POST',
           body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
         });
@@ -293,7 +293,8 @@ function UploadContent() {
         receiverOptions,
         linkMode: preferredBaseId ? 'version' : (candidates.length > 0 ? 'version' : 'new'), 
         baseId: preferredBaseId || candidates[0]?.id, 
-        storageKey: signResp.storageKey 
+        storageKey: signResp.storageKey,
+        geminiFile: analyzeResp.geminiFile 
       } : q));
       toast({ title: 'Processed', description: `${item.file.name} analyzed by AI.` });
     } catch (e) {
@@ -535,6 +536,9 @@ function UploadContent() {
             fileSizeBytes: item.file.size,
             mimeType: item.file.type || 'application/octet-stream',
             contentHash: item.hash,
+            geminiFileId: item.geminiFile?.fileId,
+            geminiFileUri: item.geminiFile?.fileUri,
+            geminiFileMimeType: item.geminiFile?.mimeType,
           },
         });
         try {
@@ -575,6 +579,9 @@ function UploadContent() {
             fileSizeBytes: item.file.size,
             mimeType: item.file.type || 'application/octet-stream',
             contentHash: item.hash,
+            geminiFileId: item.geminiFile?.fileId,
+            geminiFileUri: item.geminiFile?.fileUri,
+            geminiFileMimeType: item.geminiFile?.mimeType,
           },
         });
         // Save extraction JSON for preview fallback (optional)
@@ -1286,4 +1293,3 @@ export default function UploadPage() {
     </Suspense>
   );
 }
-

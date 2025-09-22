@@ -36,13 +36,30 @@ export default function RecycleBinPage() {
     }
   }, []);
 
-  useEffect(() => { if (isAuthenticated) refresh(); }, [isAuthenticated, refresh]);
+  useEffect(() => {
+    if (isAuthenticated) refresh();
+  }, [isAuthenticated, refresh]);
+
+  useEffect(() => {
+    const handleUpdate = () => refresh();
+    window.addEventListener('documentDeleted', handleUpdate);
+    window.addEventListener('documentRestored', handleUpdate);
+    window.addEventListener('documentPurged', handleUpdate);
+    return () => {
+      window.removeEventListener('documentDeleted', handleUpdate);
+      window.removeEventListener('documentRestored', handleUpdate);
+      window.removeEventListener('documentPurged', handleUpdate);
+    };
+  }, [refresh]);
 
   const restore = async (id: string) => {
     setLoading(true);
     try {
       const { orgId } = getApiContext();
       await apiFetch(`/orgs/${orgId}/documents/${id}/restore`, { method: 'POST' });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documentRestored', { detail: { id } }));
+      }
       await refresh();
     } catch (e) { console.error('restore failed', e); } finally { setLoading(false); }
   };
@@ -53,6 +70,9 @@ export default function RecycleBinPage() {
     try {
       const { orgId } = getApiContext();
       await apiFetch(`/orgs/${orgId}/documents/${id}/permanent`, { method: 'DELETE' });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documentPurged', { detail: { id } }));
+      }
       await refresh();
     } catch (e) { console.error('permanent delete failed', e); } finally { setLoading(false); }
   };

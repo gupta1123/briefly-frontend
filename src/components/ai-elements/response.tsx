@@ -1,14 +1,15 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { type ComponentProps, memo } from 'react';
-import { Streamdown } from 'streamdown';
+import { memo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-type ResponseProps = ComponentProps<typeof Streamdown>;
+type ResponseProps = { className?: string; children: string };
 
 export const Response = memo(
-  ({ className, ...props }: ResponseProps) => (
-    <Streamdown
+  ({ className, children }: ResponseProps) => (
+    <div
       className={cn(
         'size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         'prose prose-sm max-w-none text-[15px] leading-relaxed',
@@ -23,10 +24,14 @@ export const Response = memo(
         'prose-blockquote:my-0 prose-blockquote:border-l-2 prose-blockquote:border-border/50 prose-blockquote:pl-3 prose-blockquote:italic prose-blockquote:text-muted-foreground',
         'prose-code:text-sm prose-code:bg-muted/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono',
         'prose-pre:my-0 prose-pre:bg-muted/50 prose-pre:p-3 prose-pre:rounded-lg prose-pre:overflow-x-auto',
+        'prose-table:my-2 prose-th:font-semibold',
         className
       )}
-      {...props}
-    />
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {children}
+      </ReactMarkdown>
+    </div>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children
 );

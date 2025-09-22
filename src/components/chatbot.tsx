@@ -8,9 +8,10 @@ import { Textarea } from './ui/textarea';
 import { ScrollArea } from './ui/scroll-area';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { cn } from '@/lib/utils';
-import { apiFetch, getApiContext, ssePost } from '@/lib/api';
+import { apiFetch, getApiContext } from '@/lib/api';
 import type { Message as ChatMessage, StoredDocument } from '@/lib/types';
 import { answerQuestionsAboutDocuments } from '@/ai/flows/answer-questions-about-documents';
+// Streaming removed; using REST endpoint only
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -41,11 +42,29 @@ import { MetaList } from '@/components/ai-elements/meta-list';
 import { Preview } from '@/components/ai-elements/preview';
 import { Badge } from '@/components/ui/badge';
 
-export default function Chatbot({ documents, embed = false }: { documents: StoredDocument[]; embed?: boolean }) {
+export type ChatContext = {
+  scope: 'org' | 'folder' | 'doc';
+  docId?: string;
+  folderPath?: string[];
+  includeSubfolders?: boolean;
+  includeLinked?: boolean;
+  includeVersions?: boolean;
+};
+
+export default function Chatbot({
+  documents,
+  embed = false,
+  context,
+}: {
+  documents: StoredDocument[];
+  embed?: boolean;
+  context?: ChatContext;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [processingTasks, setProcessingTasks] = useState<{id: string, title: string, items: string[]}[]>([]);
+  const [strictMode, setStrictMode] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const {toast} = useToast();
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -192,188 +211,56 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
     try { runAbort.current?.abort(); } catch {}
     runAbort.current = new AbortController();
     scrollToBottom();
-    
     // Command parsing: /linked filters or /versions <docId>
-  const { effectiveDocs, question, exportCsv, exportJson, extractFields, timelineEntity } = parseCommand(input, documents);
+    const { effectiveDocs, question, exportCsv, exportJson, extractFields, timelineEntity } = parseCommand(input, documents);
     const explicitDocId = identifyExplicitDocMention(input, documents);
     if (explicitDocId) setLastFocusDocId(explicitDocId);
 
-
-
-
-
-        // If server-agent is enabled, let the server handle metadata and linked queries instead of local shortcuts
-    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT !== '1') {
-      // Local handler: answer metadata queries deterministically when possible
-      const maybeMetadata = await buildMetadataAnswer(input, messages, documents);
-      if (maybeMetadata) {
-        setMessages((prev) => [...prev, maybeMetadata]);
-        setIsLoading(false);
-        scrollToBottom();
-        return;
-      }
-
-      // Local handler: answer simple "linked docs" queries deterministically when possible
-      const maybeLinked = await buildLinkedDocsAnswerIfApplicable(input, messages, documents);
-      if (maybeLinked) {
-        setMessages((prev) => [...prev, maybeLinked]);
-        setIsLoading(false);
-        scrollToBottom();
-        return;
-      }
-    }
-
-    // Attempt semantic search against backend (pgvector) to fetch the most relevant docs/chunks
-    let semanticDocs: StoredDocument[] = [];
-    const semanticSnippets = new Map<string, string[]>();
+    // Unified REST call (streaming removed)
     try {
       const { orgId } = getApiContext();
-      if (orgId) {
-        const res = await apiFetch<{ mode: string; docs: { id: string; bestSimilarity?: number }[]; chunks?: { docId: string; snippet: string }[] }>(`/orgs/${orgId}/search/semantic`, {
-          method: 'POST',
-          body: { q: question, limit: 24 },
-          signal: runAbort.current?.signal,
-        });
-        const ids = Array.from(new Set((res.docs || []).map(d => d.id)));
-        semanticDocs = ids
-          .map((id) => documents.find((d) => d.id === id))
-          .filter(Boolean) as StoredDocument[];
-        for (const c of res.chunks || []) {
-          if (!semanticSnippets.has(c.docId)) semanticSnippets.set(c.docId, []);
-          const arr = semanticSnippets.get(c.docId)!;
-          if (arr.length < 2) arr.push(c.snippet);
-        }
-      }
-    } catch (e) {
-      // Silent fallback to heuristic ranking
-    }
-
-    // Local handler: answer preview queries deterministically when possible (after semantic search)
-    // If server-side agent is enabled, defer preview to server; otherwise allow local preview
-    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT !== '1') {
-      const maybePreview = await buildPreviewAnswer(input, messages, documents, semanticSnippets);
-      if (maybePreview) {
-        setMessages((prev) => [...prev, maybePreview]);
-        setIsLoading(false);
-        scrollToBottom();
-        return;
-      }
-    }
-
-    // If server-side agent is enabled, stream from backend orchestrator
-    if (process.env.NEXT_PUBLIC_USE_SERVER_AGENT === '1') {
+      if (!orgId) throw new Error('No organization');
+      const assistantId = (Date.now() + 1).toString();
+      const placeholder: ChatMessage = { id: assistantId, role: 'assistant', content: '' };
+      setMessages((prev) => [...prev, placeholder]);
+      const conv = messages.slice(-15).map(m => ({ role: m.role, content: m.content, citations: m.citations }));
+      const memory = {
+        focusDocIds: inferFocusDocIds(messages, lastFocusDocId || undefined),
+        lastCitedDocIds: extractLastCitedDocIds(messages),
+        lastListDocIds: lastListDocIdsRef.current,
+      };
+      const body: any = { question, conversation: conv, memory, strictCitations: strictMode };
+      if (context) body.context = context;
+      const res = await apiFetch<any>(`/orgs/${orgId}/chat/query`, { method: 'POST', body, signal: runAbort.current?.signal });
+      const answerText = String(res?.answer || '').trim();
+      const citations = Array.isArray(res?.citations) ? res.citations : [];
       try {
-        const { orgId } = getApiContext();
-        if (!orgId) throw new Error('No organization');
-        const assistantId = (Date.now() + 1).toString();
-        const placeholder: ChatMessage = { id: assistantId, role: 'assistant', content: '' };
-        setMessages((prev) => [...prev, placeholder]);
-        // Send a thin conversation summary to help the server infer focus doc from prior citations
-        const conv = messages.slice(-15).map(m => ({ role: m.role, content: m.content, citations: m.citations }));
-        const memory = {
-          focusDocIds: inferFocusDocIds(messages, lastFocusDocId || undefined),
-          lastCitedDocIds: extractLastCitedDocIds(messages),
-          lastListDocIds: lastListDocIdsRef.current,
-        };
-        await ssePost(`/orgs/${orgId}/chat/ask`, { question, conversation: conv, memory }, ({ event, data }) => {
-          if (event === 'delta') {
-            const sanitized = String(data).replace(/\[docIndex:\s*\d+\]/gi, '');
-            setMessages((prev) => prev.map(m => m.id === assistantId ? { ...m, content: (m.content || '') + sanitized } : m));
-            // First content chunk received; hide loader to avoid double bubbles
-            setIsLoading(false);
-            scrollToBottom();
-          }
-          if (event === 'mode' && (data as any)?.mode) {
-            const mode = (data as any).mode as string;
-            const agentType = (data as any).agentType;
-            const agentName = (data as any).agentName;
-            upsertAgentInfo(assistantId, (prev) => ({
-              ...prev,
-              mode,
-              agentType,
-              agentName
-            }));
-          }
-          if (event === 'stage') {
-            try {
-              const d = data as any;
-              if (d?.agent && d?.step) {
-                const line = `${d.agent}: ${d.step}${d.mode ? ` (${d.mode})` : ''}${typeof d.count === 'number' ? ` [${d.count}]` : ''}`;
-                upsertAgentInfo(assistantId, (prev) => ({ ...prev, stages: [...(prev.stages||[]), line] }));
-              } else if (d?.retrieval) {
-                const line = `Retrieval: ${d.retrieval}`;
-                upsertAgentInfo(assistantId, (prev) => ({ ...prev, stages: [...(prev.stages||[]), line] }));
-              }
-            } catch {}
-          }
-          if (event === 'list' && data && Array.isArray((data as any).items)) {
-            try {
-              const items = (data as any).items as Array<{ index: number; docId: string; title?: string }>;
-              lastListDocIdsRef.current = items.map(i => i.docId).filter(Boolean);
-            } catch {}
-          }
-          if (event === 'metadata' && data) {
-            try {
-              const md = data as any;
-              setMessages((prev) => prev.map(m => m.id === assistantId ? {
-                ...m,
-                metadata: {
-                  subject: md.subject || undefined,
-                  name: md.name || undefined,
-                  sender: (md.senderCanonical || md.sender) || undefined,
-                  receiver: (md.receiverCanonical || md.receiver) || undefined,
-                  date: md.date || undefined,
-                  documentType: md.documentType || undefined,
-                  category: md.category || undefined,
-                  filename: md.filename || undefined,
-                }
-              } : m));
-            } catch {}
-          }
-          if (event === 'linked' && data) {
-            try {
-              const d = data as any;
-              const fromVersions = Array.isArray(d.versions) ? d.versions : [];
-              const fromDocs = Array.isArray(d.documents) ? d.documents : [];
-              const merged = [...fromVersions, ...fromDocs]
-                .map((x: any) => ({ id: x.id, title: x.title, documentDate: x.documentDate }))
-                .filter((x: any) => x && x.id);
-              // de-duplicate by id
-              const dedup = Array.from(new Map(merged.map((x: any) => [x.id, x])).values());
-              setMessages((prev) => prev.map(m => m.id === assistantId ? ({ ...m, linkedDocuments: dedup as any }) : m));
-            } catch {}
-          }
-          if (event === 'preview' && data) {
-            try {
-              const d = data as any;
-              setMessages((prev) => prev.map(m => m.id === assistantId ? ({
-                ...m,
-                preview: { docId: d.docId, title: d.title, url: d.url, lines: Array.isArray(d.lines) ? d.lines : [] }
-              }) : m));
-            } catch {}
-          }
-          if (event === 'end' && data && Array.isArray(data.citations)) {
-            const agentType = (data as any).agentType;
-            const agentName = (data as any).agentName;
-            setMessages((prev) => prev.map(m => m.id === assistantId ? {
-              ...m,
-              citations: data.citations,
-              agentType,
-              agentName
-            } : m));
-            setIsLoading(false);
-            scrollToBottom();
-          }
-        }, { signal: runAbort.current?.signal });
-        setIsLoading(false);
-        scrollToBottom();
-        return;
-      } catch (e) {
-        // Fall through to local path on failure
+        const ids = Array.isArray((res as any)?.considered?.docIds) ? (res as any).considered.docIds : [];
+        if (ids.length > 0) lastListDocIdsRef.current = ids.filter(Boolean);
+      } catch {}
+      setIsLoading(false);
+      await streamUpdateMessage(setMessages, assistantId, answerText || '');
+      // attach metrics if present
+      setMessages(prev => prev.map(m => m.id === assistantId ? ({ ...m, coverage: res?.coverage, confidence: res?.confidence }) as any : m));
+      if (citations.length > 0) {
+        setMessages(prev => prev.map(m => m.id === assistantId ? ({ ...m, citations }) as any : m));
       }
+      if (!explicitDocId && citations.length > 0) {
+        const first = citations[0]?.docId;
+        if (first) setLastFocusDocId(first);
+      }
+      return;
+    } catch (err) {
+      console.error('REST chat failed', err);
+      setIsLoading(false);
+      const errorMessage: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: "Sorry, I couldn't get an answer. Please try again." };
+      setMessages((prev) => [...prev, errorMessage]);
+      return;
     }
 
     // Rank top-K docs client-side by simple relevance to the question to reduce noise (fallback)
+    const semanticSnippets = new Map<string, string[]>();
+    const semanticDocs: StoredDocument[] = [];
     const rankedFallback = rankDocumentsByRelevance(effectiveDocs, question).slice(0, 12);
     // Also materialize linked target docs referenced by ranked docs and by the current focus doc
     const focusIds = inferFocusDocIds(messages, lastFocusDocId || undefined);
@@ -691,7 +578,12 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
               />
               <PromptInputToolbar>
                 <PromptInputTools>
-                  {/* Try a doc button removed */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={strictMode} onChange={(e)=>setStrictMode(e.target.checked)} />
+                      Strict citations
+                    </label>
+                  </div>
                 </PromptInputTools>
                 {isLoading ? (
                   <Button variant="outline" size="sm" onClick={handleStop}>
@@ -808,11 +700,17 @@ export default function Chatbot({ documents, embed = false }: { documents: Store
                             </div>
                           )}
                         </div>
-                      ) : (
-                        <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed break-words overflow-wrap-anywhere">
-                          {message.content}
-                        </div>
-                      )}
+                    ) : (
+                      <div className="prose prose-sm max-w-none text-[15px] leading-relaxed prose-p:my-0 prose-p:leading-relaxed break-words overflow-wrap-anywhere">
+                        {message.content}
+                        {typeof (message as any).coverage === 'number' || typeof (message as any).confidence === 'number' ? (
+                          <div className="mt-3 text-xs text-muted-foreground">
+                            {typeof (message as any).coverage === 'number' ? (<span className="mr-3">Coverage: {Math.round(((message as any).coverage||0)*100)}%</span>) : null}
+                            {typeof (message as any).confidence === 'number' ? (<span>Confidence: {Math.round(((message as any).confidence||0)*100)}%</span>) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                     </MessageContent>
                     {message.role === 'assistant' && (
                       <div className="self-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity">

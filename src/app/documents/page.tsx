@@ -80,15 +80,19 @@ function DocumentsPageContent() {
   
   // Listen for document deletion events and refresh the list
   useEffect(() => {
-    const handleDocumentDeleted = () => {
-      // Refresh the documents list when a document is deleted
+    const handleDocumentsChanged = () => {
+      // Refresh the documents list when a document changes in recycle bin or elsewhere
       refresh();
     };
-    
-    window.addEventListener('documentDeleted', handleDocumentDeleted);
-    
+
+    window.addEventListener('documentDeleted', handleDocumentsChanged);
+    window.addEventListener('documentRestored', handleDocumentsChanged);
+    window.addEventListener('documentPurged', handleDocumentsChanged);
+
     return () => {
-      window.removeEventListener('documentDeleted', handleDocumentDeleted);
+      window.removeEventListener('documentDeleted', handleDocumentsChanged);
+      window.removeEventListener('documentRestored', handleDocumentsChanged);
+      window.removeEventListener('documentPurged', handleDocumentsChanged);
     };
   }, [refresh]);
   
