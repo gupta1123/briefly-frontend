@@ -1,4 +1,3 @@
-import type { ApiOptions } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 
 export type ApiOptions = {
@@ -6,6 +5,7 @@ export type ApiOptions = {
   headers?: Record<string, string>;
   body?: any;
   signal?: AbortSignal;
+  skipCache?: boolean;
 };
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
@@ -75,21 +75,22 @@ export function onApiContextChange(cb: Cb) {
 }
 
 export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Promise<T> {
+  const { skipCache = false, ...restOpts } = opts;
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {
-    ...(opts.headers || {}),
+    ...(restOpts.headers || {}),
   };
   // Only set JSON content type when a body is provided (avoids Fastify empty JSON body error)
-  if (opts.body !== undefined && !headers['Content-Type']) {
+  if (restOpts.body !== undefined && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
   if (currentOrgId && !headers['X-Org-Id']) headers['X-Org-Id'] = currentOrgId;
   
   // Check cache for GET requests only
-  const method = opts.method || 'GET';
+  const method = restOpts.method || 'GET';
   const cacheKey = getCacheKey(path, headers);
   
-  if (method === 'GET') {
+  if (method === 'GET' && !skipCache) {
     const cached = getCachedResponse<T>(cacheKey);
     if (cached !== null) {
       return cached;
@@ -106,10 +107,10 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
   const res = await fetch(url, {
     method,
     headers,
-    body: opts.body !== undefined
-      ? (headers['Content-Type'] === 'application/json' ? JSON.stringify(opts.body) : (opts.body as any))
+    body: restOpts.body !== undefined
+      ? (headers['Content-Type'] === 'application/json' ? JSON.stringify(restOpts.body) : (restOpts.body as any))
       : undefined,
-    signal: opts.signal,
+    signal: restOpts.signal,
   });
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -128,7 +129,7 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
       }
     }
 
-    const error = new Error(`API ${opts.method || 'GET'} ${path} failed: ${msg}`);
+    const error = new Error(`API ${restOpts.method || 'GET'} ${path} failed: ${msg}`);
     (error as any).status = res.status;
     (error as any).data = errorData;
     throw error;
@@ -144,7 +145,7 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
   }
   
   // Cache successful GET responses
-  if (method === 'GET' && res.ok) {
+  if (method === 'GET' && res.ok && !skipCache) {
     // Determine TTL based on endpoint
     let ttl = CACHE_TTL.medium;
     if (path.includes('/documents')) {

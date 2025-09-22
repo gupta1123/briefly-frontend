@@ -170,6 +170,60 @@ function UploadContent() {
     if (list && list.length) onSelect(list);
   };
 
+  type AnalyzeSuccessResponse = {
+    ocrText: string;
+    metadata: any;
+    geminiFile?: { fileId: string; fileUri: string; mimeType?: string };
+  };
+
+  type AnalyzeJobQueuedResponse = {
+    jobId: string;
+    status: string;
+    expiresAt?: number;
+  };
+
+  type UploadAnalysisJobStatus = {
+    jobId: string;
+    status: 'queued' | 'processing' | 'succeeded' | 'failed';
+    result?: AnalyzeSuccessResponse;
+    error?: string;
+    fallback?: { ocrText: string; metadata: any } | null;
+    httpStatus?: number;
+    createdAt?: number;
+    updatedAt?: number;
+  };
+
+  const waitForAnalysisJob = async (orgId: string, jobId: string): Promise<AnalyzeSuccessResponse> => {
+    const maxWaitMs = 2 * 60 * 1000;
+    const pollIntervalMs = 1500;
+    const started = Date.now();
+
+    while (true) {
+      const job = await apiFetch<UploadAnalysisJobStatus>(`/orgs/${orgId}/uploads/analyze/${jobId}`, { skipCache: true });
+
+      if (job.status === 'succeeded' && job.result) {
+        return job.result;
+      }
+
+      if (job.status === 'failed') {
+        const err: any = new Error(job.error || 'AI analysis failed');
+        err.status = job.httpStatus || 500;
+        if (job.fallback) {
+          err.data = { fallback: job.fallback };
+        }
+        throw err;
+      }
+
+      if (Date.now() - started > maxWaitMs) {
+        const timeoutErr: any = new Error('AI analysis timed out');
+        timeoutErr.status = 503;
+        throw timeoutErr;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+  };
+
   const processItem = async (index: number) => {
     const item = queue[index];
     if (!item || item.locked || item.status === 'processing' || item.status === 'uploading' || item.status === 'success' || item.status === 'ready') return;
@@ -208,12 +262,18 @@ function UploadContent() {
       // We'll only store file location on Save to avoid orphan rows in case user cancels
 
       // 3) Ask backend AI to analyze from signed Storage URL
-      let analyzeResp: { ocrText: string; metadata: any; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } };
+      let analyzeResp: AnalyzeSuccessResponse;
       try {
-        analyzeResp = await apiFetch<{ ocrText: string; metadata: any; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } }>(`/orgs/${orgId}/uploads/analyze`, {
+        const analyzeInitiated = await apiFetch<AnalyzeSuccessResponse | AnalyzeJobQueuedResponse>(`/orgs/${orgId}/uploads/analyze`, {
           method: 'POST',
           body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
         });
+
+        if ('jobId' in analyzeInitiated) {
+          analyzeResp = await waitForAnalysisJob(orgId, analyzeInitiated.jobId);
+        } else {
+          analyzeResp = analyzeInitiated;
+        }
       } catch (e: any) {
         // Gracefully accept server fallback when AI is unavailable (HTTP 503 or 413)
         const status = (e && e.status) || 0;
