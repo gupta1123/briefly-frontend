@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, ToggleLeft, ToggleRight, ExternalLink } from 'lucide-react';
+import { Send, Bot, User, ExternalLink } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { ScopePicker } from '@/components/scope-picker';
@@ -22,7 +22,6 @@ export default function TestAgentPage() {
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [ctx, setCtx] = useState<PickerContext>({ scope: 'org', includeSubfolders: true, includeLinked: false, includeVersions: true });
-  const [useToolPlanner, setUseToolPlanner] = useState(false);
   const [pickerOpen, setPickerOpen] = useState<null | 'folder' | 'doc'>(null);
   const { toast } = useToast();
   // Track last listed document IDs from previous assistant message (for referential follow-ups)
@@ -73,7 +72,6 @@ export default function TestAgentPage() {
           memory: {
             lastListDocIds: lastListDocIdsRef.current
           },
-          useToolPlanner,
           context: ctx
         }
       });
@@ -119,7 +117,7 @@ export default function TestAgentPage() {
               // If we have citations but no direct answer, generate a brief summary
               else if (Array.isArray(responseData.citations) && responseData.citations.length > 0) {
                 const docCount = responseData.citations.length;
-                const docNames = responseData.citations.slice(0, 3).map(c => c.docName).join(', ');
+                const docNames = responseData.citations.slice(0, 3).map((c: any) => c.docName).join(', ');
                 content = `I found ${docCount} relevant document${docCount !== 1 ? 's' : ''}. ${docNames}${docCount > 3 ? ' and more' : ''}.`;
               }
               // If response is an object without answer/content fields
@@ -199,21 +197,6 @@ export default function TestAgentPage() {
                 <Button variant="outline" size="sm" onClick={()=>setPickerOpen('folder')}>Select Folder…</Button>
                 <Button variant="outline" size="sm" onClick={()=>setPickerOpen('doc')}>Select Document…</Button>
               </div>
-            </div>
-            {/* Toggle: Tool-aware Router + Planner */}
-            <div className="flex items-center justify-between mb-4 p-3 bg-muted rounded-md">
-              <div className="flex items-center gap-2">
-                {useToolPlanner ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                <span className="font-medium">{useToolPlanner ? 'Tool Planner: On' : 'Tool Planner: Off'}</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setUseToolPlanner(v => !v)}
-                className="gap-2"
-              >
-                {useToolPlanner ? 'Disable' : 'Enable'}
-              </Button>
             </div>
             
             <ScrollArea className="flex-1 rounded-md border p-4 mb-4" ref={scrollAreaRef}>

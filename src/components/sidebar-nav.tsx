@@ -40,6 +40,7 @@ export default function SidebarNav() {
   if (isOps) {
     const opsLinks = [
       { href: '/ops', label: 'Ops Overview', Icon: LayoutDashboard },
+      { href: '/ops/orgs', label: 'Organizations', Icon: Folder },
       { href: '/ops/new', label: 'Create Org', Icon: PlusSquare },
       // Future: incidents, metrics, settings
       // { href: '/ops/incidents', label: 'Incidents', Icon: Activity },
