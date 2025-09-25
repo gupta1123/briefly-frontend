@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import AppLayout from '@/components/layout/app-layout';
-import Chatbot from '@/components/chatbot';
 import { useDocuments } from '@/hooks/use-documents';
 import { useAuth } from '@/hooks/use-auth';
 import { useSettings } from '@/hooks/use-settings';
@@ -912,7 +911,6 @@ function DocumentsPageContent() {
           )}
         </div>
       </div>
-      <Chatbot documents={documents} />
       
       {/* Folder Deletion Confirmation Dialog */}
       <UiDialog open={shareOpen} onOpenChange={setShareOpen}>

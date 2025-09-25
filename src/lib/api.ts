@@ -252,7 +252,12 @@ export async function ssePost(
             data += '\n' + line;
           }
         }
-        try { onEvent({ event, data: JSON.parse(data) }); } catch { onEvent({ event, data }); }
+        try { 
+          onEvent({ event, data: JSON.parse(data) }); 
+        } catch (parseError) { 
+          console.warn('Failed to parse SSE data:', data, parseError);
+          // Don't pass unparsed data to avoid showing raw JSON in UI
+        }
         if (event === 'end') { seenEnd = true; aborted = true; break; }
       }
       if (aborted) break;

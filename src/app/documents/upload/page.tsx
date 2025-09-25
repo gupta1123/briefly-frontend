@@ -26,6 +26,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { computeContentHash } from '@/lib/utils';
 import { useCategories } from '@/hooks/use-categories';
 import { useUserDepartmentCategories } from '@/hooks/use-department-categories';
+import UploadFilePreview from '@/components/upload-file-preview';
 
 const toDataUri = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -130,8 +131,32 @@ function UploadContent() {
     const arr = Array.from(list);
     if (arr.length === 0) return;
 
+    // Check total queue limit (max 10 files)
+    const MAX_FILES = 10;
+    const currentQueueLength = queue.length;
+    const availableSlots = MAX_FILES - currentQueueLength;
+    
+    if (availableSlots <= 0) {
+      toast({
+        title: 'Upload limit reached',
+        description: `Maximum ${MAX_FILES} files can be uploaded at once. Please process current files first.`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Limit new files to available slots
+    const limitedArr = arr.slice(0, availableSlots);
+    if (arr.length > availableSlots) {
+      toast({
+        title: 'Some files skipped',
+        description: `Only ${availableSlots} files added. Maximum ${MAX_FILES} files allowed per upload session.`,
+        variant: 'destructive'
+      });
+    }
+
     // Push to queue with initial state; compute hashes to dedupe
-    const entries = await Promise.all(arr.map(async (f) => ({
+    const entries = await Promise.all(limitedArr.map(async (f) => ({
       file: f,
       progress: 0,
       status: 'idle' as const,
@@ -256,7 +281,9 @@ function UploadContent() {
         method: 'POST',
         body: { filename: item.file.name, mimeType: item.file.type || 'application/octet-stream' },
       });
-      await uploadToSignedUrl(signResp.url, item.file);
+      await uploadToSignedUrl(signResp.url, item.file, 3, (progress) => {
+        setQueue(prev => prev.map((q, i) => i === index ? { ...q, progress: Math.min(progress, 90) } : q));
+      });
 
       // 2) Finalize DB row if already created, else we will create on Save
       // We'll only store file location on Save to avoid orphan rows in case user cancels
@@ -421,18 +448,37 @@ function UploadContent() {
     });
   }
 
-  async function uploadToSignedUrl(signedUrl: string, file: File, retries = 3) {
+  async function uploadToSignedUrl(signedUrl: string, file: File, retries = 3, onProgress?: (progress: number) => void) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await fetch(signedUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
+        // ✅ OPTIMIZED: Use XMLHttpRequest for progress tracking
+        const response = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          
+          // Track upload progress
+          xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable && onProgress) {
+              const percentComplete = Math.round((event.loaded / event.total) * 100);
+              onProgress(percentComplete);
+            }
+          });
+          
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve({ ok: true, status: xhr.status, statusText: xhr.statusText });
+            } else {
+              reject(new Error(`Upload failed with status: ${xhr.status} ${xhr.statusText}`));
+            }
+          });
+          
+          xhr.addEventListener('error', () => {
+            reject(new Error('Upload failed'));
+          });
+          
+          xhr.open('PUT', signedUrl);
+          xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+          xhr.send(file);
         });
-        
-        if (!response.ok) {
-          throw new Error(`Upload failed with status: ${response.status} ${response.statusText}`);
-        }
         
         return; // Success
       } catch (error) {
@@ -821,7 +867,7 @@ function UploadContent() {
                     <div>
                       <CardTitle className="text-lg font-semibold">Upload Queue</CardTitle>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {queue.filter(item => item.status === 'ready').length} of {queue.length} files ready to save
+                        {queue.filter(item => item.status === 'ready').length} of {queue.length}/10 files ready to save
                       </p>
                     </div>
                   </div>
@@ -885,11 +931,12 @@ function UploadContent() {
                     const item = queue[activeIndex]!;
                     const i = activeIndex!;
                     return (
-                      <div className={`rounded-lg border p-3 ring-1 ring-primary`}>
-                        <div className="flex items-center justify-between gap-3">
+                      <div className={`rounded-lg border p-6 ring-1 ring-primary`}>
+                        {/* Header with file info and actions */}
+                        <div className="flex items-center justify-between gap-3 mb-6">
                           <div className="min-w-0">
-                            <div className="truncate font-medium" title={item.file.name}>{item.file.name}</div>
-                            <div className="text-xs text-muted-foreground capitalize">{item.status}</div>
+                            <div className="truncate font-medium text-lg" title={item.file.name}>{item.file.name}</div>
+                            <div className="text-sm text-muted-foreground capitalize">{item.status}</div>
                           </div>
                           <div className="w-40"><Progress value={item.progress} /></div>
                           <div className="flex items-center gap-2">
@@ -910,29 +957,11 @@ function UploadContent() {
                             }}>Remove</Button>}
                           </div>
                         </div>
-                        {/* Preview with simple rotation controls for images */}
-                        {item.previewUrl && (
-                          <div className="mt-3">
-                            <div className="flex items-center justify-center bg-muted/30 rounded-md overflow-hidden">
-                              {item.file.name.toLowerCase().endsWith('.pdf') ? (
-                                <embed src={item.previewUrl} type="application/pdf" className="w-full" style={{ height: 320 }} />
-                              ) : (
-                              <img
-                                src={item.previewUrl}
-                                alt="preview"
-                                style={{ transform: `rotate(${item.rotation || 0}deg)`, maxHeight: 240 }}
-                                className="object-contain w-full"
-                              />
-                              )}
-                            </div>
-                            {!item.file.name.toLowerCase().endsWith('.pdf') && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) - 90 + 360) % 360 } : q))}>Rotate Left</Button>
-                              <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) + 90) % 360 } : q))}>Rotate Right</Button>
-                            </div>
-                            )}
-                          </div>
-                        )}
+
+                        {/* Enhanced layout: Left side - Form, Right side - Preview */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* Left side - Form data */}
+                          <div className="space-y-4">
                       {item.status === 'ready' && item.form && (
                         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                             {/* Link as version vs new */}
@@ -1091,6 +1120,24 @@ function UploadContent() {
                             </div>
                           </div>
                         )}
+                          </div>
+
+                          {/* Right side - Enhanced file preview */}
+                          <div className="space-y-4">
+                            <div>
+                              <h3 className="text-sm font-medium mb-3">Document Preview</h3>
+                              <UploadFilePreview file={item.file} previewUrl={item.previewUrl} height="75vh" />
+                            </div>
+                            
+                            {/* Image rotation controls */}
+                            {!item.file.name.toLowerCase().endsWith('.pdf') && (
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) - 90 + 360) % 360 } : q))}>Rotate Left</Button>
+                                <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, rotation: ((q.rotation || 0) + 90) % 360 } : q))}>Rotate Right</Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     );
                   })()
@@ -1285,8 +1332,30 @@ function UploadContent() {
                       setIsProcessingAll(true);
                       try {
                         const indicesToProcess = queue.map((q, i) => (q.status === 'idle' || q.status === 'error') ? i : -1).filter(i => i >= 0);
-                        for (const i of indicesToProcess) {
-                          await processItem(i);
+                        
+                        // Process files in parallel batches for better performance
+                        const BATCH_SIZE = 10; // Process 10 files simultaneously (max allowed)
+                        const batches = [];
+                        for (let i = 0; i < indicesToProcess.length; i += BATCH_SIZE) {
+                          batches.push(indicesToProcess.slice(i, i + BATCH_SIZE));
+                        }
+                        
+                        for (const batch of batches) {
+                          // Process each batch in parallel
+                          await Promise.allSettled(
+                            batch.map(i => processItem(i).catch(error => {
+                              console.error(`Failed to process item ${i}:`, error);
+                              // Update queue to show error status
+                              setQueue(prev => prev.map((q, idx) => 
+                                idx === i ? { ...q, status: 'error', note: error.message } : q
+                              ));
+                            }))
+                          );
+                          
+                          // Small delay between batches to prevent overwhelming the system
+                          if (batches.indexOf(batch) < batches.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                          }
                         }
                       } finally {
                         setIsProcessingAll(false);

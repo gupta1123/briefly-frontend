@@ -25,6 +25,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDocuments } from '@/hooks/use-documents';
 import { useDepartments } from '@/hooks/use-departments';
 import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select';
+import UploadFilePreview from './upload-file-preview';
 
 const toDataUri = (file: File): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -67,34 +68,60 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
     if (!file) { toast({ title: 'No file selected', description: 'Please select a file to upload.', variant: 'destructive' }); return; }
 
     setStatus('uploading');
-    const interval = setInterval(() => setProgress((p) => Math.min(p + 7, 85)), 160);
+    setProgress(0);
 
     try {
       const { orgId } = getApiContext();
       if (!orgId) throw new Error('No organization set');
 
-      // 1) Direct upload to our backend (which writes to Supabase Storage)
+      // ✅ OPTIMIZED: Direct upload with real progress tracking
       const form = new FormData();
       form.append('file', file);
+      
       // Include Supabase JWT for backend auth
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
-      const uploadRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787'}/orgs/${orgId}/uploads/direct`, {
-        method: 'POST',
-        headers: { 
-          'X-Org-Id': orgId,
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: form,
+      
+      // Create XMLHttpRequest for progress tracking
+      const uploadRes = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100);
+            setProgress(Math.min(percentComplete, 90)); // Cap at 90% until processing
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve({ ok: true, json: () => Promise.resolve(response) });
+            } catch (e) {
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+          }
+        });
+        
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload failed'));
+        });
+        
+        xhr.open('POST', `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787'}/orgs/${orgId}/uploads/direct`);
+        xhr.setRequestHeader('X-Org-Id', orgId);
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+        xhr.send(form);
       });
-      if (!uploadRes.ok) {
-        const msg = await uploadRes.text();
-        throw new Error(`Storage upload failed: ${msg}`);
-      }
-      const uploaded = await uploadRes.json();
+      
+      const uploaded = await (uploadRes as any).json();
       if (!uploaded?.storageKey) throw new Error('No storageKey returned');
 
-      clearInterval(interval);
       setProgress(100);
       setStatus('processing');
 
@@ -196,7 +223,6 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
       setStatus('success');
     } catch (e) {
       console.error(e);
-      clearInterval(interval);
       setStatus('error');
       toast({ title: 'Upload Failed', description: (e as Error).message || 'There was an error.', variant: 'destructive' });
     }
@@ -300,9 +326,27 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild><Button><UploadCloud className="mr-2 h-4 w-4" />Upload Document</Button></DialogTrigger>
-      <DialogContent className={cn("sm:max-w-[425px]", { 'sm:max-w-md': status !== 'idle' })}>
+      <DialogContent className={cn("sm:max-w-6xl", { 'sm:max-w-md': status !== 'idle' })}>
         <DialogHeader><DialogTitle>Upload a new document</DialogTitle><DialogDescription>Your file will be uploaded to storage and scanned by AI.</DialogDescription></DialogHeader>
-        <div className="py-4">{renderStatus()}</div>
+        <div className="py-4">
+          {status === 'idle' && file ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left side - Upload form */}
+              <div className="space-y-4">
+                {renderStatus()}
+              </div>
+              {/* Right side - File preview */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Document Preview</h3>
+                  <UploadFilePreview file={file} height="70vh" />
+                </div>
+              </div>
+            </div>
+          ) : (
+            renderStatus()
+          )}
+        </div>
         <DialogFooter>
           {(status === 'idle' || status === 'error') ? (
             <Button onClick={handleUpload} disabled={!fileName}>{status === 'error' ? 'Try Again' : 'Upload'}</Button>

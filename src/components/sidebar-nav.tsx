@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Folder, MessageSquareText, CloudUpload, Activity, Trash2, Wrench, PlusSquare } from 'lucide-react';
+import { LayoutDashboard, Folder, CloudUpload, Activity, Trash2, Wrench, PlusSquare } from 'lucide-react';
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -20,14 +20,12 @@ const links = [
   { href: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { href: '/documents', label: 'Folders', Icon: Folder },
   { href: '/documents/upload', label: 'Upload Document', Icon: CloudUpload },
-  { href: '/chat', label: 'AI Assistant', Icon: MessageSquareText, badge: 'AI' },
   { href: '/audit', label: 'Activity', Icon: Activity },
 ];
 
 const adminLinks = [
   { href: '/recycle-bin', label: 'Recycle Bin', Icon: Trash2 },
-  { href: '/audit', label: 'Activity', Icon: Activity },
-  { href: '/test-agent', label: 'Chat Bot', Icon: Wrench },
+  { href: '/chat', label: 'Chat Bot', Icon: Wrench },
 ];
 
 export default function SidebarNav() {
@@ -77,7 +75,7 @@ export default function SidebarNav() {
         <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Main</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {links.slice(0, 4).map(({ href, label, Icon, badge }) => (
+            {links.slice(0, 4).map(({ href, label, Icon, badge }: { href: string; label: string; Icon: any; badge?: string }) => (
               <SidebarMenuItem key={href}>
                 <SidebarMenuButton
                   asChild
