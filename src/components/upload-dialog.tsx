@@ -20,12 +20,19 @@ import type { Document, StoredDocument } from '@/lib/types';
 import { ocrAndDigitalizeDocument } from '@/ai/flows/ocr-and-digitalize-documents';
 import { extractDocumentMetadata } from '@/ai/flows/extract-document-metadata';
 import { apiFetch, getApiContext } from '@/lib/api';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/use-auth';
 import { useDocuments } from '@/hooks/use-documents';
 import { useDepartments } from '@/hooks/use-departments';
 import { Select as UiSelect, SelectContent as UiSelectContent, SelectItem as UiSelectItem, SelectTrigger as UiSelectTrigger, SelectValue as UiSelectValue } from '@/components/ui/select';
 import UploadFilePreview from './upload-file-preview';
+
+type SignedUploadPayload = {
+  signedUrl: string;
+  storageKey: string;
+  path?: string;
+  token?: string | null;
+  expiresAt?: string | null;
+};
 
 const toDataUri = (file: File): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -33,6 +40,72 @@ const toDataUri = (file: File): Promise<string> => new Promise((resolve, reject)
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
+
+const uploadFileToSignedUrl = async (
+  signedUrl: string,
+  file: File,
+  onProgress?: (progress: number) => void,
+  retries = 3
+): Promise<void> => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && onProgress) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100);
+            onProgress(percentComplete);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status: ${xhr.status} ${xhr.statusText}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload failed'));
+        });
+
+        xhr.open('PUT', signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.setRequestHeader('x-upsert', 'false');
+        xhr.send(file);
+      });
+
+      return;
+    } catch (error) {
+      if (attempt === retries) {
+        throw error instanceof Error ? error : new Error('Upload failed');
+      }
+
+      const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+};
+
+const uploadFile = async (file: File, onProgress?: (progress: number) => void): Promise<{ storageKey: string }> => {
+  const orgId = getApiContext().orgId || '';
+  const signResp = await apiFetch<SignedUploadPayload>(`/orgs/${orgId}/uploads/sign`, {
+    method: 'POST',
+    body: {
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+    },
+  });
+
+  if (!signResp?.signedUrl || !signResp.storageKey) {
+    throw new Error('Failed to obtain signed upload URL');
+  }
+
+  await uploadFileToSignedUrl(signResp.signedUrl, file, onProgress, 3);
+  return { storageKey: signResp.storageKey };
+};
 
 export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: StoredDocument) => void }) {
   const [open, setOpen] = useState(false);
@@ -53,6 +126,19 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
+      // Check file size limit (50MB)
+      const maxSizeBytes = 50 * 1024 * 1024; // 50MB in bytes
+      if (selectedFile.size > maxSizeBytes) {
+        toast({
+          title: 'File too large',
+          description: `Files must be smaller than 50MB. Your file is ${(selectedFile.size / 1024 / 1024).toFixed(1)}MB.`,
+          variant: 'destructive'
+        });
+        // Clear the file input
+        if (event.target) event.target.value = '';
+        return;
+      }
+
       setFile(selectedFile);
       setFileName(selectedFile.name);
       const extension = selectedFile.name.split('.').pop()?.toLowerCase();
@@ -74,53 +160,12 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
       const { orgId } = getApiContext();
       if (!orgId) throw new Error('No organization set');
 
-      // ✅ OPTIMIZED: Direct upload with real progress tracking
-      const form = new FormData();
-      form.append('file', file);
-      
-      // Include Supabase JWT for backend auth
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      
-      // Create XMLHttpRequest for progress tracking
-      const uploadRes = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 100);
-            setProgress(Math.min(percentComplete, 90)); // Cap at 90% until processing
-          }
-        });
-        
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              resolve({ ok: true, json: () => Promise.resolve(response) });
-            } catch (e) {
-              reject(new Error('Invalid response format'));
-            }
-          } else {
-            reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
-          }
-        });
-        
-        xhr.addEventListener('error', () => {
-          reject(new Error('Upload failed'));
-        });
-        
-        xhr.open('POST', `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787'}/orgs/${orgId}/uploads/direct`);
-        xhr.setRequestHeader('X-Org-Id', orgId);
-        if (token) {
-          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        }
-        xhr.send(form);
+      // Upload file to Supabase Storage
+      const uploadResult = await uploadFile(file, (percentComplete) => {
+        setProgress(Math.min(percentComplete, 90));
       });
-      
-      const uploaded = await (uploadRes as any).json();
-      if (!uploaded?.storageKey) throw new Error('No storageKey returned');
+
+      const uploaded = { storageKey: uploadResult.storageKey };
 
       setProgress(100);
       setStatus('processing');
@@ -197,7 +242,7 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
       });
 
       // 6) Finalize with storage key, size, mime
-      await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
+      const finalized = await apiFetch<StoredDocument | any>(`/orgs/${orgId}/uploads/finalize`, {
         method: 'POST',
         body: {
           documentId: created.id,
@@ -207,16 +252,21 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
         }
       });
 
+      const docRecord = finalized?.id ? finalized : created;
+      if (!docRecord?.id) {
+        throw new Error('Document record missing identifier after finalize');
+      }
+
       const newDoc: StoredDocument = {
-        id: created.id,
-        name: file.name,
-        type: fileType,
-        uploadedAt: new Date(created.uploaded_at || Date.now()),
-        version: 1,
+        id: docRecord.id,
+        name: docRecord.name || file.name,
+        type: (docRecord.type as Document['type']) || fileType,
+        uploadedAt: docRecord.uploadedAt ? new Date(docRecord.uploadedAt) : new Date(),
+        version: docRecord.version || 1,
         keywords: metadataResult.keywords,
         summary: metadataResult.summary,
         content: ocrResult.extractedText,
-        folderPath: folderPath,
+        folderPath: docRecord.folderPath || folderPath,
       };
 
       onNewDocument(newDoc);

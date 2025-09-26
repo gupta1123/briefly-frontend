@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import AppLayout from '@/components/layout/app-layout';
@@ -145,8 +145,22 @@ function UploadContent() {
       return;
     }
 
+    // Filter out files that exceed size limit (50MB)
+    const maxSizeBytes = 50 * 1024 * 1024; // 50MB in bytes
+    const validFiles = arr.filter(f => {
+      if (f.size > maxSizeBytes) {
+        toast({
+          title: 'File too large',
+          description: `${f.name} is ${(f.size / 1024 / 1024).toFixed(1)}MB. Files must be smaller than 50MB.`,
+          variant: 'destructive'
+        });
+        return false;
+      }
+      return true;
+    });
+
     // Limit new files to available slots
-    const limitedArr = arr.slice(0, availableSlots);
+    const limitedArr = validFiles.slice(0, availableSlots);
     if (arr.length > availableSlots) {
       toast({
         title: 'Some files skipped',
@@ -275,17 +289,14 @@ function UploadContent() {
       clearInterval(timer);
       setQueue(prev => prev.map((q, i) => i === index ? { ...q, progress: 100, status: 'processing' } : q));
 
-      // 1) Sign upload to Supabase Storage
-      const orgId = getApiContext().orgId || '';
-      const signResp = await apiFetch<{ url: string; storageKey: string }>(`/orgs/${orgId}/uploads/sign`, {
-        method: 'POST',
-        body: { filename: item.file.name, mimeType: item.file.type || 'application/octet-stream' },
-      });
-      await uploadToSignedUrl(signResp.url, item.file, 3, (progress) => {
+      // 1) Upload file to Supabase Storage
+      const uploadResult = await uploadFile(item.file, (progress) => {
         setQueue(prev => prev.map((q, i) => i === index ? { ...q, progress: Math.min(progress, 90) } : q));
       });
+      const storageKey = uploadResult.storageKey;
 
       // 2) Finalize DB row if already created, else we will create on Save
+      const orgId = getApiContext().orgId || '';
       // We'll only store file location on Save to avoid orphan rows in case user cancels
 
       // 3) Ask backend AI to analyze from signed Storage URL
@@ -293,7 +304,7 @@ function UploadContent() {
       try {
         const analyzeInitiated = await apiFetch<AnalyzeSuccessResponse | AnalyzeJobQueuedResponse>(`/orgs/${orgId}/uploads/analyze`, {
           method: 'POST',
-          body: { storageKey: signResp.storageKey, mimeType: item.file.type || 'application/octet-stream' },
+          body: { storageKey: storageKey, mimeType: item.file.type || 'application/octet-stream' },
         });
 
         if ('jobId' in analyzeInitiated) {
@@ -380,7 +391,7 @@ function UploadContent() {
         receiverOptions,
         linkMode: preferredBaseId ? 'version' : (candidates.length > 0 ? 'version' : 'new'), 
         baseId: preferredBaseId || candidates[0]?.id, 
-        storageKey: signResp.storageKey,
+        storageKey: storageKey,
         geminiFile: analyzeResp.geminiFile 
       } : q));
       toast({ title: 'Processed', description: `${item.file.name} analyzed by AI.` });
@@ -493,6 +504,28 @@ function UploadContent() {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
+  }
+
+  async function uploadFile(file: File, onProgress?: (progress: number) => void): Promise<{ storageKey: string }> {
+    const orgId = getApiContext().orgId || '';
+
+    const signResp = await apiFetch<{
+      signedUrl: string;
+      storageKey: string;
+    }>(`/orgs/${orgId}/uploads/sign`, {
+      method: 'POST',
+      body: {
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+      },
+    });
+
+    if (!signResp.signedUrl || !signResp.storageKey) {
+      throw new Error('Failed to obtain signed upload URL');
+    }
+
+    await uploadToSignedUrl(signResp.signedUrl, file, 3, onProgress);
+    return { storageKey: signResp.storageKey };
   }
 
   // Ensure we have a focused item when entering queue view or when items change
