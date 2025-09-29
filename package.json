@@ -2,6 +2,7 @@
     "name": "nextn",
     "version": "0.1.0",
     "private": true,
+    "description": "Briefly Document Management System - Updated to fix document limit issue",
     "scripts": {
         "dev": "next dev --turbopack -p 9002",
         "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
