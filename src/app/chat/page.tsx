@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import AppLayout from '@/components/layout/app-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,174 @@ import { PromptInput, PromptInputBody, PromptInputTextarea, PromptInputSubmit } 
 import { Sources, SourcesTrigger, SourcesContent, Source } from '@/components/ai-elements/sources';
 import { Loader } from '@/components/ai-elements/loader';
 import { Task, TaskTrigger, TaskContent, TaskItem } from '@/components/ai-elements/task';
+import { InlineCitation, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody, InlineCitationCarousel, InlineCitationCarouselContent, InlineCitationCarouselItem, InlineCitationSource } from '@/components/ai-elements/inline-citation';
 import { apiFetch, getApiContext, ssePost } from '@/lib/api';
 import { useSettings } from '@/hooks/use-settings';
 import { Bot, Zap } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ChatContextSelector, type ChatContext } from '@/components/chat-context-selector';
+import { ChatContextDisplay } from '@/components/chat-context-display';
+
+// Helper functions to improve citation display
+function getCitationDisplayTitle(citation: any): string {
+  // Use the best available name
+  if (citation?.docName && citation.docName !== `Document ${citation.docId?.slice(0, 8)}...`) {
+    // Remove prefixes like "subject:" or "title:" 
+    let title = citation.docName;
+    if (title.includes(': ')) {
+      title = title.split(': ').slice(1).join(': ');
+    }
+    return title;
+  }
+  
+  // If no good docName, try to get title from fields
+  const fields = citation?.fields || {};
+  const titleField = fields.title || fields.subject || fields.name;
+  if (titleField) {
+    return titleField;
+  }
+  
+  // Last resort: use a generic name instead of showing raw ID
+  return 'Referenced Document';
+}
+
+function getCitationDisplayDescription(citation: any): string {
+  // Provide meaningful description
+  const snippet = citation?.snippet || citation?.description;
+  
+  if (snippet && snippet !== 'Referenced in response') {
+    return snippet.length > 100 ? snippet.slice(0, 100) + '...' : snippet;
+  }
+  
+  // Extract relevant info from fields
+  const fields = citation?.fields || {};
+  const usefulFields = ['sender', 'receiver', 'date', 'subject'];
+  
+  const parts: string[] = [];
+  usefulFields.forEach(field => {
+    if (fields[field]) {
+      parts.push(`${field}: ${fields[field]}`);
+    }
+  });
+  
+  const description = parts.slice(0, 2).join(' • '); // Show max 2 relevant fields
+  return description || 'Click to view document details';
+}
+
+// Function to process content and reorder citations inline  
+function processContentWithCitations(content: string, citations: any[] = []) {
+  if (!content || typeof content !== 'string') return content;
+  
+  // Pattern to match citation markdown like [^1], [^2], etc.
+  const citationMDPattern = /\[\^(\d+)\]/g;
+  // Pattern to match raw document IDs like [03bb980a-5e3c-4aac-b631-1cd9b158b763]
+  const uuidPattern = /\[([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\]/g;
+  
+  const mdMatches = Array.from(content.matchAll(citationMDPattern));
+  const uuidMatches = Array.from(content.matchAll(uuidPattern));
+  
+  // Combine both patterns and sort by index
+  const allMatches = [...uuidMatches, ...mdMatches].sort((a, b) => a.index - b.index);
+  
+  if (allMatches.length === 0) {
+    // No citations, just return content normal
+    return <Response className="inline">{content}</Response>;
+  }
+  
+  // Process the text, capturing each cite section and non-cite text
+  const elements: React.ReactNode[] = [];
+  let lastIdx = 0;
+  
+  allMatches.forEach((match, index) => {
+    const citationNum = match[1]; // Could be "1" for markdown or UUID string for doc ID
+    const matchIdx = match.index!;
+    const matchLength = match[0].length;
+    
+    // Add text before the citation
+    if (matchIdx > lastIdx) {
+      const textBefore = content.slice(lastIdx, matchIdx);
+      if (textBefore) {
+        elements.push(
+          <Response key={`text-${index}`} className="inline">
+            {textBefore}
+          </Response>
+        );
+      }
+    }
+    
+    // Find the citation (handle both markdown [^N] format and UUID format)
+    let citation;
+    if (citationMDPattern.test(match[0])) {
+      // This is markdown [^1], [^2], etc.
+      const num = parseInt(citationNum);
+      citation = citations && citations[num - 1];
+    } else {
+      // This is a UUID document ID
+      citation = citations && citations.find(cit => cit.docId === citationNum);
+    }
+    
+    if (citation) {
+      elements.push(
+        <InlineCitation key={`cite-${citationNum}`}>
+          <InlineCitationCard>
+            <InlineCitationCardTrigger 
+              sources={citation.docId ? [`/documents/${citation.docId}`] : []}
+              className="inline-flex ml-1"
+            >
+              <Badge variant="secondary" className="text-xs">
+                [^{
+                  citationMDPattern.test(match[0]) 
+                    ? citationNum 
+                    : (citations.findIndex(cit => cit.docId === citationNum) + 1) || '?'
+                }]
+              </Badge>
+            </InlineCitationCardTrigger>
+            <InlineCitationCardBody className="w-80">
+              <InlineCitationCarousel>
+                <InlineCitationCarouselContent>
+                  <InlineCitationCarouselItem>
+                    <InlineCitationSource
+                      title={getCitationDisplayTitle(citation)}
+                      description={getCitationDisplayDescription(citation)}
+                      url={`/documents/${citation.docId}`}
+                    />
+                  </InlineCitationCarouselItem>
+                </InlineCitationCarouselContent>
+              </InlineCitationCarousel>
+            </InlineCitationCardBody>
+          </InlineCitationCard>
+        </InlineCitation>
+      );
+    } else {
+      // Fallback for missing citation
+      elements.push(
+        <span key={`missing-${index}`} className="text-blue-600 font-semibold inline ml-1 text-xs">
+          [^{
+            citationMDPattern.test(match[0]) 
+              ? citationNum 
+              : (citations.findIndex(cit => cit.docId === citationNum) + 1) || '?'
+          }]
+        </span>
+      );
+    }
+    
+    lastIdx = matchIdx + matchLength;
+  });
+  
+  // Add any remaining text after the last citation
+  if (lastIdx < content.length) {
+    const remainingText = content.slice(lastIdx);
+    if (remainingText) {
+      elements.push(
+        <Response key="text-end" className="inline">
+          {remainingText}
+        </Response>
+      );
+    }
+  }
+  
+  return <span className="inline">{elements}</span>;
+}
 
 function getThemeColors(accentColor: string) {
   const colorMap: Record<string, {
@@ -196,6 +361,7 @@ export default function TestAgentEnhancedPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastListDocIds, setLastListDocIds] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
+  const [chatContext, setChatContext] = useState<ChatContext>({ type: 'org' });
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettings();
   const themeColors = getThemeColors(settings.accent_color);
@@ -213,9 +379,18 @@ export default function TestAgentEnhancedPage() {
   const handleSubmit = async (input: string) => {
     if (!input.trim() || isLoading) return;
 
-    console.log('Submitting message:', input);
+    console.log('Submitting message:', input, 'Context:', chatContext);
     const { orgId } = getApiContext();
-    const endpoint = '/chat/stream';
+    
+    // Determine endpoint based on context
+    let endpoint = '/chat/stream';
+    if (chatContext.type === 'document' && chatContext.id) {
+      endpoint = `/orgs/${orgId}/chat/document/${chatContext.id}/stream`;
+    } else if (chatContext.type === 'folder' && chatContext.id) {
+      endpoint = `/orgs/${orgId}/chat/folder/${chatContext.id}/stream`;
+    } else {
+      endpoint = `/orgs/${orgId}/chat/stream`;
+    }
     
     // Add user message
     const userMessage: Message = {
@@ -246,7 +421,7 @@ export default function TestAgentEnhancedPage() {
       setCurrentTaskSteps([]);
       setCurrentTools([]);
       
-      await ssePost(`/orgs/${orgId}${endpoint}`, {
+      await ssePost(endpoint, {
         question: input,
         conversation: messages.map(m => ({
           role: m.role,
@@ -465,9 +640,9 @@ export default function TestAgentEnhancedPage() {
                               {/* Main Response Content */}
                               {message.content && (
                                 <div className="space-y-3">
-                                  <Response className="prose prose-sm max-w-none text-foreground dark:prose-invert">
-                                    {message.content}
-                                  </Response>
+                                  <div className="prose prose-sm max-w-none text-foreground dark:prose-invert">
+                                    {processContentWithCitations(message.content, message.citations)}
+                                  </div>
                                   
                                 </div>
                               )}
@@ -539,6 +714,25 @@ export default function TestAgentEnhancedPage() {
               </ScrollArea>
               
               <div className="border-t border-border p-4 bg-background">
+                {/* Context Selector */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Chat Context:</span>
+                      <ChatContextSelector
+                        value={chatContext}
+                        onChange={setChatContext}
+                      />
+                    </div>
+                    {chatContext.type !== 'org' && (
+                      <ChatContextDisplay
+                        context={chatContext}
+                        onClear={() => setChatContext({ type: 'org' })}
+                      />
+                    )}
+                  </div>
+                </div>
+                
                 <PromptInput
                   onSubmit={(message, event) => {
                     event.preventDefault();
@@ -552,7 +746,13 @@ export default function TestAgentEnhancedPage() {
                     <PromptInputTextarea
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
-                      placeholder="Ask me about your documents or anything else..."
+                      placeholder={
+                        chatContext.type === 'document' 
+                          ? `Ask about "${chatContext.name || 'this document'}"...`
+                          : chatContext.type === 'folder'
+                          ? `Ask about documents in "${chatContext.name || 'this folder'}"...`
+                          : "Ask me about your documents or anything else..."
+                      }
                       disabled={isLoading}
                       className="w-full"
                     />

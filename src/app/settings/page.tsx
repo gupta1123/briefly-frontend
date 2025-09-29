@@ -180,22 +180,22 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="p-0 md:p-0 space-y-6">
+      <div className="p-0 md:p-0 space-y-6 min-h-0">
         <PageHeader
           title="Settings"
           subtitle="Appearance, chat, and access controls"
           sticky
           icon={<SettingsIcon className="h-5 w-5" />}
         />
-        <div className="px-4 md:px-6">
+        <div className="px-4 md:px-6 min-h-0">
         <Tabs defaultValue="appearance" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="appearance">Personal</TabsTrigger>
-          {isAdmin && <TabsTrigger value="general">Organization</TabsTrigger>}
-          {(isAdmin || isTeamLead) && <TabsTrigger value="teams">Teams</TabsTrigger>}
-          {canManageOrgMembers && <TabsTrigger value="users">Users</TabsTrigger>}
-          {isAdmin && <TabsTrigger value="roles">Access</TabsTrigger>}
-          {isAdmin && <TabsTrigger value="security">Security</TabsTrigger>}
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-6 overflow-x-auto">
+          <TabsTrigger value="appearance" className="text-xs md:text-sm">Personal</TabsTrigger>
+          {isAdmin && <TabsTrigger value="general" className="text-xs md:text-sm">Organization</TabsTrigger>}
+          {(isAdmin || isTeamLead) && <TabsTrigger value="teams" className="text-xs md:text-sm">Teams</TabsTrigger>}
+          {canManageOrgMembers && <TabsTrigger value="users" className="text-xs md:text-sm">Users</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="roles" className="text-xs md:text-sm">Access</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="security" className="text-xs md:text-sm">Security</TabsTrigger>}
         </TabsList>
 
                 {isAdmin && (
@@ -280,11 +280,11 @@ export default function SettingsPage() {
             <CardTitle className="flex items-center gap-2">Appearance <Badge variant="outline">Personal</Badge></CardTitle>
             <p className="text-sm text-muted-foreground">Personalize the interface. Changes apply immediately for you only.</p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <CardContent className="space-y-6">
+            <div className="space-y-6">
                     <div>
                       <label className="text-sm mb-2 block">Interface Size</label>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {(['sm','md','lg'] as const).map(s => (
                           <Button key={s} variant={personalSettings.ui_scale === s ? 'default' : 'outline'} size="sm" onClick={async () => {
                             try {
@@ -305,7 +305,7 @@ export default function SettingsPage() {
                     </div>
               <div>
                 <label className="text-sm mb-2 block">Accent Color</label>
-                <div className="grid grid-cols-8 gap-2">
+                <div className="grid grid-cols-6 sm:grid-cols-8 gap-2">
                   {ACCENT_COLORS.map((c) => (
                     <button
                       key={c}
@@ -322,14 +322,14 @@ export default function SettingsPage() {
               <div>
                 <label className="text-sm mb-2 block">Theme</label>
                 <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="font-medium">Dark mode</div>
                     <div className="text-xs text-muted-foreground">Dim the UI and reduce glare for low‑light environments.</div>
                   </div>
                   <Switch checked={!!personalSettings.dark_mode} onCheckedChange={onToggleDarkMode} />
                 </div>
               </div>
-              <div className="lg:col-span-2">
+              <div>
                 <label className="text-sm mb-2 block">Date Format</label>
                 <Select value={personalSettings.date_format} onValueChange={async (v) => {
                   try {
@@ -501,38 +501,40 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="text-sm font-medium">Allowed IPs</div>
-                  <div className="flex gap-2 flex-wrap items-end">
-                    <Input id="ipAdd2" placeholder="e.g., 203.0.113.10" className="w-64" />
-                    <Button onClick={async () => {
-                      const el = document.getElementById('ipAdd2') as HTMLInputElement | null;
-                      if (!el) return;
-                      const v = el.value.trim();
-                      if (!v) return;
-                      try {
-                        await addIp(v);
-                      el.value = '';
-                      } catch (error: any) {
-                        toast({
-                          title: 'Invalid IP Address',
-                          description: error.message || 'Please enter a valid IP address.',
-                          variant: 'destructive'
-                        });
-                      }
-                    }}>Add</Button>
-                    <Button variant="outline" onClick={async () => {
-                      try {
-                      const ip = await getCurrentIp();
-                        if (ip) {
-                          await addIp(ip);
+                  <div className="space-y-2">
+                    <Input id="ipAdd2" placeholder="e.g., 203.0.113.10" className="w-full" />
+                    <div className="flex gap-2 flex-wrap">
+                      <Button onClick={async () => {
+                        const el = document.getElementById('ipAdd2') as HTMLInputElement | null;
+                        if (!el) return;
+                        const v = el.value.trim();
+                        if (!v) return;
+                        try {
+                          await addIp(v);
+                        el.value = '';
+                        } catch (error: any) {
+                          toast({
+                            title: 'Invalid IP Address',
+                            description: error.message || 'Please enter a valid IP address.',
+                            variant: 'destructive'
+                          });
                         }
-                      } catch (error: any) {
-                        toast({
-                          title: 'Error Getting IP',
-                          description: error.message || 'Could not retrieve your current IP address.',
-                          variant: 'destructive'
-                        });
-                      }
-                    }}>Use my IP</Button>
+                      }}>Add</Button>
+                      <Button variant="outline" onClick={async () => {
+                        try {
+                        const ip = await getCurrentIp();
+                          if (ip) {
+                            await addIp(ip);
+                          }
+                        } catch (error: any) {
+                          toast({
+                            title: 'Error Getting IP',
+                            description: error.message || 'Could not retrieve your current IP address.',
+                            variant: 'destructive'
+                          });
+                        }
+                      }}>Use my IP</Button>
+                    </div>
                   </div>
                   <div className="rounded-md border divide-y">
                     {policy.ips.map(ip => (
@@ -546,7 +548,7 @@ export default function SettingsPage() {
                   <div className="pt-2">
                     <label className="text-xs text-muted-foreground">Bulk replace (one per line)</label>
                     <textarea className="mt-1 w-full rounded-md border bg-background p-2 text-sm" rows={4} placeholder="203.0.113.5\n2001:db8::1" id="bulk-ips-settings" />
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-2 space-y-2">
                       <Button variant="outline" onClick={async ()=>{
                         const ta = document.getElementById('bulk-ips-settings') as HTMLTextAreaElement | null;
                         if (!ta) return;

@@ -120,7 +120,7 @@ export default function RolesManagement() {
                     <Badge variant="outline">System</Badge>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {Object.entries(grouped).map(([group, perms]) => (
                     <div key={group}>
                       <div className="text-xs font-semibold mb-2">{group}</div>
@@ -128,7 +128,7 @@ export default function RolesManagement() {
                         {perms.map(p => (
                           <label key={p.key} className="flex items-center gap-2 text-sm">
                             <Checkbox checked={!!role.permissions?.[p.key]} onCheckedChange={(v:any) => onToggle(role, p.key, !!v)} />
-                            <span>{p.label}</span>
+                            <span className="text-xs md:text-sm">{p.label}</span>
                           </label>
                         ))}
                       </div>

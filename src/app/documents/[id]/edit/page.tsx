@@ -363,7 +363,7 @@ function ServerSearchResults({ docId, query, onAdd }: { docId: string; query: st
       try {
         setLoading(true);
         const { orgId } = getApiContext();
-        const data = await apiFetch<any[]>(`/orgs/${orgId}/documents?q=${encodeURIComponent(query)}&limit=100`);
+        const data = await apiFetch<any[]>(`/orgs/${orgId}/documents?q=${encodeURIComponent(query)}`);
         if (!cancelled) setRows(Array.isArray(data) ? data : []);
       } catch (e) {
         if (!cancelled) setRows([]);

@@ -93,7 +93,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     try {
       // Include department filter if user has selected a specific department
       const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
-      const response = await apiFetch<any>(`/orgs/${orgId}/documents?limit=50${deptParam}`, {
+      const response = await apiFetch<any>(`/orgs/${orgId}/documents${deptParam}`, {
         signal: abortControllerRef.current.signal
       });
 

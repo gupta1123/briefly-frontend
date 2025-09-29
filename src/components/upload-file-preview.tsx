@@ -26,10 +26,10 @@ export default function UploadFilePreview({
     <div className={cn("w-full bg-muted/30 rounded-lg overflow-hidden", className)}>
       {isPdf ? (
         <div className="w-full" style={{ height: typeof height === 'number' ? `${height}px` : height }}>
-          <embed 
-            src={src} 
-            type="application/pdf" 
+          <iframe
+            src={src}
             className="w-full h-full border-0"
+            title="PDF Preview"
             style={{ minHeight: typeof height === 'number' ? `${height}px` : height }}
           />
         </div>

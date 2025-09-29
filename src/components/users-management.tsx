@@ -350,49 +350,50 @@ export default function UsersManagement() {
             <CardTitle>Invite New User</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
-              <Input 
-                placeholder="Username" 
-                value={form.username} 
-                onChange={(e) => setForm({ ...form, username: e.target.value })} 
-              />
-              <Input 
-                placeholder="Email" 
-                value={form.email} 
-                onChange={(e) => setForm({ ...form, email: e.target.value })} 
-              />
-              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
-                  <SelectItem value="member">Member</SelectItem>
-                  <SelectItem value="guest">Guest (Temp)</SelectItem>
-                </SelectContent>
-              </Select>
-              <div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input 
+                  placeholder="Username" 
+                  value={form.username} 
+                  onChange={(e) => setForm({ ...form, username: e.target.value })} 
+                />
+                <Input 
+                  placeholder="Email" 
+                  value={form.email} 
+                  onChange={(e) => setForm({ ...form, email: e.target.value })} 
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
+                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="guest">Guest (Temp)</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input 
                   placeholder="Password (optional, min 6)" 
                   value={form.password} 
                   onChange={(e) => setForm({ ...form, password: e.target.value })} 
                 />
-                {form.password && form.password.length < 6 && (
-                  <p className="text-[11px] text-destructive mt-1">Minimum 6 characters.</p>
-                )}
               </div>
-              {form.role === 'guest' ? (
-                <div className="flex gap-2 items-center">
+              {form.password && form.password.length < 6 && (
+                <p className="text-[11px] text-destructive">Minimum 6 characters.</p>
+              )}
+              {form.role === 'guest' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Input 
                     type="number" 
                     min={1} 
-                    className="w-20" 
-                    placeholder="Qty" 
+                    placeholder="Duration" 
                     value={form.amount} 
                     onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} 
                   />
                   <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v as any })}>
-                    <SelectTrigger className="w-28">
+                    <SelectTrigger>
                       <SelectValue placeholder="Unit" />
                     </SelectTrigger>
                     <SelectContent>
@@ -405,8 +406,9 @@ export default function UsersManagement() {
                     Create
                   </Button>
                 </div>
-              ) : (
-                <div className="flex gap-2 items-center">
+              )}
+              {form.role !== 'guest' && (
+                <div className="flex justify-end">
                   <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
                     Create
                   </Button>
@@ -425,7 +427,8 @@ export default function UsersManagement() {
       {/* Users Table */}
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b">
@@ -454,7 +457,9 @@ export default function UsersManagement() {
                         <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center text-sm font-medium">
                           {(u.displayName || u.username).slice(0, 2).toUpperCase()}
                         </div>
-                        <span className="font-medium">{u.displayName || u.username}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">{u.displayName || u.username}</div>
+                        </div>
                       </div>
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">
@@ -515,7 +520,7 @@ export default function UsersManagement() {
                       )}
                     </td>
                     <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
                         {/* Change Password Button */}
                         {(isAdmin || isTeamLead) && (
                           <Button
@@ -575,9 +580,169 @@ export default function UsersManagement() {
                 )}
               </tbody>
             </table>
-            {!loading && users.length === 0 && (
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden">
+            {loading ? (
+              <div className="p-4 space-y-4">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="w-10 h-10 rounded-full" />
+                      <div className="space-y-2 flex-1">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-48" />
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <Skeleton className="h-6 w-16" />
+                      <div className="flex gap-2">
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : users.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
                 No users yet. Invite your first team member to get started.
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                {users.map(u => (
+                  <div key={u.username} className="border rounded-lg p-4 space-y-3">
+                    {/* User Info */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-muted text-foreground flex items-center justify-center text-sm font-medium">
+                        {(u.displayName || u.username).slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{u.displayName || u.username}</div>
+                        <div className="text-sm text-muted-foreground truncate">{u.email || '—'}</div>
+                      </div>
+                    </div>
+
+                    {/* Teams */}
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {getTeamBadges(u).map((d: any) => (
+                        <Badge key={d.id} variant="secondary" className="capitalize text-xs" data-color={d.color || 'default'}>
+                          {d.name}
+                        </Badge>
+                      ))}
+                      {Array.isArray(u.departments) && u.departments.length > 2 && (
+                        <span className="text-xs text-muted-foreground">+{u.departments.length - 2}</span>
+                      )}
+                    </div>
+
+                    {/* Role and Actions */}
+                    <div className="flex justify-between items-center">
+                      <div className="flex-1">
+                        {isAdmin ? (
+                          <Select
+                            value={u.role as any}
+                            onValueChange={async (v) => {
+                              try {
+                                const orgId = getApiContext().orgId || '';
+                                if (orgId) {
+                                  await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, {
+                                    method: 'PATCH',
+                                    body: { role: v === 'systemAdmin' ? 'orgAdmin' : v },
+                                  });
+                                }
+                                updateUser(u.username, prev => ({ ...prev, role: v as any }));
+                                toast({ 
+                                  title: 'Role updated', 
+                                  description: `${u.email || u.username} is now ${getRoleLabel(v)}.` 
+                                });
+                              } catch (e: any) {
+                                const msg = (e as Error)?.message?.replace(/^API.*failed:\s*/, '') || 'Failed to update role';
+                                toast({ 
+                                  title: 'Could not update role', 
+                                  description: msg, 
+                                  variant: 'destructive' as any 
+                                });
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-[120px]" disabled={u.role === 'systemAdmin'}>
+                              <SelectValue placeholder="Role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {isAdmin && <SelectItem value="systemAdmin">System Administrator</SelectItem>}
+                              {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
+                              <SelectItem value="member">Member</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="text-sm font-medium">{getRoleLabel(u.role as any)}</div>
+                        )}
+                      </div>
+                      
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-1">
+                        {/* Change Password Button */}
+                        {(isAdmin || isTeamLead) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-blue-600 hover:text-blue-700 h-8 w-8 p-0"
+                            onClick={() => setPasswordModal({ isOpen: true, user: u })}
+                            disabled={u.role === 'systemAdmin'}
+                          >
+                            <Lock className="w-4 h-4" />
+                          </Button>
+                        )}
+
+                        {/* Delete Button */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="text-red-600 hover:text-red-700 h-8 w-8 p-0" 
+                              disabled={!isAdmin || u.role === 'systemAdmin'}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remove user from organization?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will revoke access for {u.email || u.username}. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction asChild>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={u.role === 'systemAdmin'}
+                                  onClick={async () => {
+                                    try {
+                                      const orgId = getApiContext().orgId || '';
+                                      if (orgId) await apiFetch(`/orgs/${orgId}/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
+                                    } catch {}
+                                    removeUser(u.username);
+                                    toast({
+                                      title: 'User removed',
+                                      description: `${u.email || u.username} no longer has access.`
+                                    });
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

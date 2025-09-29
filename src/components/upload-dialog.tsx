@@ -303,7 +303,7 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Upload Destination</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
               <UiSelect value={folderPath.length ? folderPath.join('/') : '__root__'} onValueChange={(v) => {
                 if (v === '__root__') setFolderPath([]);
                 else setFolderPath(v.split('/').filter(Boolean));
@@ -354,7 +354,7 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
 
           {/* File Upload Section */}
           <div className="border-t pt-4">
-            <label htmlFor="file-upload" className="relative flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-background p-8 text-center hover:bg-accent">
+            <label htmlFor="file-upload" className="relative flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-background p-4 md:p-8 text-center hover:bg-accent">
               <UploadCloud className="h-10 w-10 text-muted-foreground" />
               <span className="font-semibold text-primary">Click to upload</span>
               <span className="text-sm text-muted-foreground">or drag and drop</span>
@@ -376,11 +376,11 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild><Button><UploadCloud className="mr-2 h-4 w-4" />Upload Document</Button></DialogTrigger>
-      <DialogContent className={cn("sm:max-w-6xl", { 'sm:max-w-md': status !== 'idle' })}>
+      <DialogContent className={cn("sm:max-w-6xl max-h-[90vh] overflow-y-auto", { 'sm:max-w-md': status !== 'idle' })}>
         <DialogHeader><DialogTitle>Upload a new document</DialogTitle><DialogDescription>Your file will be uploaded to storage and scanned by AI.</DialogDescription></DialogHeader>
         <div className="py-4">
           {status === 'idle' && file ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {/* Left side - Upload form */}
               <div className="space-y-4">
                 {renderStatus()}
@@ -389,7 +389,7 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-medium mb-3">Document Preview</h3>
-                  <UploadFilePreview file={file} height="70vh" />
+                  <UploadFilePreview file={file} height="50vh" />
                 </div>
               </div>
             </div>

@@ -712,10 +712,10 @@ export default function TeamsManagementNew() {
   }, [isTeamLead, selectedTeamId, departments, loading]);
 
   return (
-    <div className="h-[600px] border rounded-lg overflow-hidden">
+    <div className="h-[calc(100vh-200px)] md:h-[600px] border rounded-lg overflow-hidden">
       <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
         {/* Left Panel - Teams List */}
-        <div className="border-r border-border/50 flex flex-col">
+        <div className="border-r-0 lg:border-r border-border/50 flex flex-col">
           {/* Header */}
           <div className="p-4 border-b border-border/50">
             <div className="flex items-center justify-between mb-3">
@@ -1113,8 +1113,8 @@ export default function TeamsManagementNew() {
 
       {/* Add Member Dialog */}
       {showAddMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg shadow-lg max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">Add Team Member</h3>
@@ -1334,8 +1334,8 @@ export default function TeamsManagementNew() {
 
       {/* Edit Member Role Dialog */}
       {editingMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg shadow-lg max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">Edit Member Details</h3>
@@ -1446,8 +1446,8 @@ export default function TeamsManagementNew() {
 
       {/* Change Password Dialog */}
       {changePasswordMember && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background rounded-lg shadow-lg max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">Change Password</h3>

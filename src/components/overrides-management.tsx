@@ -144,57 +144,61 @@ export default function OverridesManagement() {
         <p className="text-sm text-muted-foreground">Override a person’s permissions at the org or for a specific department. Overrides take precedence over role permissions.</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <Select value={selectedUser} onValueChange={v => setSelectedUser(v)} disabled={usersLoading}>
-            <SelectTrigger className="w-[260px]">
-              {usersLoading ? (
-                <div className="flex items-center gap-2">
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                  <Skeleton className="h-4 w-32" />
-                </div>
-              ) : (
-                <SelectValue placeholder="Select user" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {usersLoading ? (
-                <div className="p-2">
-                  <Skeleton className="h-8 w-full mb-2" />
-                  <Skeleton className="h-8 w-full mb-2" />
-                  <Skeleton className="h-8 w-full" />
-                </div>
-              ) : (
-                users.map(u => (<SelectItem key={u.userId} value={u.userId}>{u.displayName || u.userId}</SelectItem>))
-              )}
-            </SelectContent>
-          </Select>
-          <Select value={selectedDept} onValueChange={v => setSelectedDept(v as any)} disabled={deptsLoading}>
-            <SelectTrigger className="w-[220px]">
-              {deptsLoading ? (
-                <div className="flex items-center gap-2">
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              ) : (
-                <SelectValue placeholder="Scope" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {deptsLoading ? (
-                <div className="p-2">
-                  <Skeleton className="h-8 w-full mb-2" />
-                  <Skeleton className="h-8 w-full mb-2" />
-                  <Skeleton className="h-8 w-full" />
-                </div>
-              ) : (
-                <>
-                  <SelectItem value="org">Organization (all departments)</SelectItem>
-                  {departments.map(d => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
-                </>
-              )}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={loadOverrides}>Reload</Button>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select value={selectedUser} onValueChange={v => setSelectedUser(v)} disabled={usersLoading}>
+              <SelectTrigger className="w-full">
+                {usersLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                ) : (
+                  <SelectValue placeholder="Select user" />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {usersLoading ? (
+                  <div className="p-2">
+                    <Skeleton className="h-8 w-full mb-2" />
+                    <Skeleton className="h-8 w-full mb-2" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                ) : (
+                  users.map(u => (<SelectItem key={u.userId} value={u.userId}>{u.displayName || u.userId}</SelectItem>))
+                )}
+              </SelectContent>
+            </Select>
+            <Select value={selectedDept} onValueChange={v => setSelectedDept(v as any)} disabled={deptsLoading}>
+              <SelectTrigger className="w-full">
+                {deptsLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                ) : (
+                  <SelectValue placeholder="Scope" />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {deptsLoading ? (
+                  <div className="p-2">
+                    <Skeleton className="h-8 w-full mb-2" />
+                    <Skeleton className="h-8 w-full mb-2" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                ) : (
+                  <>
+                    <SelectItem value="org">Organization (all departments)</SelectItem>
+                    {departments.map(d => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={loadOverrides}>Reload</Button>
+          </div>
         </div>
 
         {loading ? (
@@ -219,20 +223,20 @@ export default function OverridesManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {PERMISSIONS.map(p => (
                 <div key={p.key} className="flex items-center justify-between rounded-md border px-3 py-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <Checkbox checked={!!pending[p.key]} onCheckedChange={(v:any) => onToggleLocal(p.key, !!v)} />
-                    <span className="text-sm">{p.label}</span>
+                    <span className="text-xs md:text-sm truncate">{p.label}</span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs">
+                  <div className="flex items-center gap-1 text-xs flex-shrink-0">
                     {effective[p.key] ? (
                       <>
                         <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
-                        <span>Has access</span>
+                        <span className="hidden sm:inline">Has access</span>
                       </>
                     ) : (
                       <>
                         <X className="h-3 w-3 text-muted-foreground" />
-                        <span>No access</span>
+                        <span className="hidden sm:inline">No access</span>
                       </>
                     )}
                   </div>
