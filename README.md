@@ -10,3 +10,4 @@ Quick start (local backend):
 - Database: run `docs/supabase_schema.sql` and `docs/supabase_policies.sql` in Supabase SQL editor. Create buckets: `documents`, `previews`, `extractions`.
 
 Auth: Users sign in with Supabase Auth (email/password). Backend enforces RLS using the end-user JWT.
+# Trigger deployment Mon Sep 29 17:57:52 IST 2025
