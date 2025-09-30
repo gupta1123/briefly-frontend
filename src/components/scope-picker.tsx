@@ -7,17 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useFolders } from '@/hooks/use-folders';
 import { FinderPicker } from '@/components/pickers/finder-picker';
+import { type ChatContext } from './chat-context-selector';
 
 export type ChatScope = 'org' | 'folder' | 'doc';
-
-export type ChatContext = {
-  scope: ChatScope;
-  docId?: string;
-  folderPath?: string[];
-  includeSubfolders?: boolean;
-  includeLinked?: boolean;
-  includeVersions?: boolean;
-};
 
 export function ScopePicker({
   initialDocId,
@@ -28,9 +20,20 @@ export function ScopePicker({
   value: ChatContext;
   onChange: (ctx: ChatContext) => void;
 }) {
-  const [scope, setScope] = useState<ChatScope>(value.scope || 'org');
-  const [docId, setDocId] = useState<string>(value.docId || initialDocId || '');
-  const [folderPath, setFolderPath] = useState<string[]>(value.folderPath || []);
+  // Initialize from standardized ChatContext
+  const [scope, setScope] = useState<ChatScope>(() => {
+    if (value.type === 'document') return 'doc';
+    if (value.type === 'folder') return 'folder';
+    return 'org';
+  });
+  const [docId, setDocId] = useState<string>(() => {
+    if (value.type === 'document') return value.id || initialDocId || '';
+    return initialDocId || '';
+  });
+  const [folderPath, setFolderPath] = useState<string[]>(() => {
+    if (value.type === 'folder') return value.folderPath || value.path || [];
+    return [];
+  });
   const [includeLinked, setIncludeLinked] = useState<boolean>(!!value.includeLinked);
   const [includeVersions, setIncludeVersions] = useState<boolean>(!!value.includeVersions);
   const [includeSubfolders, setIncludeSubfolders] = useState<boolean>(value.includeSubfolders ?? true);
@@ -42,13 +45,20 @@ export function ScopePicker({
   // Emit changes to parent only when the effective context actually changes
   const [lastEmitted, setLastEmitted] = useState<string>('');
   useEffect(() => {
-    const next = { scope, docId: docId || undefined, folderPath, includeLinked, includeVersions, includeSubfolders };
-    const key = JSON.stringify(next);
+    // Map scope-based context to standardized ChatContext
+    const mappedContext: ChatContext = {
+      type: scope === 'doc' ? 'document' : scope === 'folder' ? 'folder' : 'org',
+      id: scope === 'doc' ? docId : undefined,
+      folderPath: scope === 'folder' ? folderPath : undefined,
+      name: scope === 'folder' && folderPath.length > 0 ? folderPath[folderPath.length - 1] : undefined
+    };
+    
+    const key = JSON.stringify(mappedContext);
     if (key !== lastEmitted) {
       setLastEmitted(key);
-      onChange(next);
+      onChange(mappedContext);
     }
-  }, [scope, docId, folderPath, includeLinked, includeVersions, includeSubfolders, onChange, lastEmitted]);
+  }, [scope, docId, folderPath, onChange, lastEmitted]);
 
   return (
     <div className="w-full rounded-md border p-3 md:p-4 bg-card/50">

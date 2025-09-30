@@ -15,10 +15,13 @@ import { Task, TaskTrigger, TaskContent, TaskItem } from '@/components/ai-elemen
 import { InlineCitation, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody, InlineCitationCarousel, InlineCitationCarouselContent, InlineCitationCarouselItem, InlineCitationSource } from '@/components/ai-elements/inline-citation';
 import { apiFetch, getApiContext, ssePost } from '@/lib/api';
 import { useSettings } from '@/hooks/use-settings';
-import { Bot, Zap } from 'lucide-react';
+import { Bot, Zap, Globe, Globe2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChatContextSelector, type ChatContext } from '@/components/chat-context-selector';
 import { ChatContextDisplay } from '@/components/chat-context-display';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { createFolderChatEndpoint } from '@/lib/folder-utils';
 
 // Helper functions to improve citation display
 function getCitationDisplayTitle(citation: any): string {
@@ -362,6 +365,7 @@ export default function TestAgentEnhancedPage() {
   const [lastListDocIds, setLastListDocIds] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [chatContext, setChatContext] = useState<ChatContext>({ type: 'org' });
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettings();
   const themeColors = getThemeColors(settings.accent_color);
@@ -380,24 +384,25 @@ export default function TestAgentEnhancedPage() {
     if (!input.trim() || isLoading) return;
 
     console.log('Submitting message:', input, 'Context:', chatContext);
-    const { orgId } = getApiContext();
+    console.log('🔍 ChatContext details:', {
+      type: chatContext.type,
+      id: chatContext.id,
+      name: chatContext.name,
+      folderPath: chatContext.folderPath,
+      path: chatContext.path
+    });
     
-    // Determine endpoint based on context
-    let endpoint = '/chat/stream';
-    if (chatContext.type === 'document' && chatContext.id) {
-      endpoint = `/orgs/${orgId}/chat/document/${chatContext.id}/stream`;
-    } else if (chatContext.type === 'folder' && chatContext.id) {
-      endpoint = `/orgs/${orgId}/chat/folder/${chatContext.id}/stream`;
-    } else {
-      endpoint = `/orgs/${orgId}/chat/stream`;
-    }
-    
-    // Add user message
-    const userMessage: Message = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: input
-    };
+    try {
+      // Determine endpoint based on context using the new folder resolution system
+      const endpoint = await createFolderChatEndpoint(chatContext);
+      console.log('✅ Using endpoint:', endpoint);
+      
+      // Add user message
+      const userMessage: Message = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: input
+      };
     
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
@@ -434,13 +439,14 @@ export default function TestAgentEnhancedPage() {
           lastCitedDocIds: []
         },
         context: {
-          scope: 'org',
+          scope: chatContext.type === 'folder' ? 'folder' : chatContext.type === 'document' ? 'document' : 'org',
           includeSubfolders: true,
           includeLinked: false,
           includeVersions: false
         },
         filters: {},
-        strictCitations: false
+        strictCitations: false,
+        webSearchEnabled: webSearchEnabled
       }, (event) => {
         if (event.event === 'message' && event.data) {
           try {
@@ -575,6 +581,11 @@ export default function TestAgentEnhancedPage() {
       // Ensure task steps and tools are cleared
       setCurrentTaskSteps([]);
       setCurrentTools([]);
+    }
+    } catch (error) {
+      console.error('Error in endpoint resolution:', error);
+      setIsLoading(false);
+      setInputValue('');
     }
   };
 
@@ -731,6 +742,25 @@ export default function TestAgentEnhancedPage() {
                       />
                     )}
                   </div>
+                </div>
+                
+                {/* Web Search Toggle */}
+                <div className="flex items-center justify-between p-3 border-b bg-muted/30">
+                  <div className="flex items-center space-x-2">
+                    <Globe className="h-4 w-4 text-muted-foreground" />
+                    <Label htmlFor="web-search-toggle" className="text-sm font-medium">
+                      Web Search
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      Allow AI to search the web for additional information
+                    </span>
+                  </div>
+                  <Switch
+                    id="web-search-toggle"
+                    checked={webSearchEnabled}
+                    onCheckedChange={setWebSearchEnabled}
+                    className="data-[state=checked]:bg-primary"
+                  />
                 </div>
                 
                 <PromptInput

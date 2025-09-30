@@ -92,7 +92,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // Include department filter if user has selected a specific department
-      const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
+      const deptParam = selectedDepartmentId ? `?departmentId=${selectedDepartmentId}` : '';
       const response = await apiFetch<any>(`/orgs/${orgId}/documents${deptParam}`, {
         signal: abortControllerRef.current.signal
       });
@@ -192,7 +192,7 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // Include department filter when loading all documents
-      const deptParam = selectedDepartmentId ? `&departmentId=${selectedDepartmentId}` : '';
+      const deptParam = selectedDepartmentId ? `?departmentId=${selectedDepartmentId}` : '';
       const list = await apiFetch<any[]>(`/orgs/${orgId}/documents${deptParam}`, {
         signal: abortControllerRef.current.signal
       });

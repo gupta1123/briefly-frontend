@@ -16,6 +16,8 @@ export type ChatContext = {
   type: 'org' | 'document' | 'folder';
   id?: string;
   name?: string;
+  folderPath?: string[];
+  // Legacy support for 'path'
   path?: string[];
 };
 
@@ -79,7 +81,7 @@ export function ChatContextSelector({ value, onChange, className }: ChatContextS
   };
 
   const handleContextSelect = (type: ChatContext['type'], id?: string, name?: string, path?: string[]) => {
-    onChange({ type, id, name, path });
+    onChange({ type, id, name, folderPath: path });
     setIsOpen(false);
     setSearchQuery('');
   };
@@ -315,7 +317,7 @@ export function ChatContextSelector({ value, onChange, className }: ChatContextS
                   ) : (
                     filteredFolders.map((folder, index) => {
                       const folderPath = folder.join('/');
-                      const isSelected = value.path?.join('/') === folderPath;
+                      const isSelected = value.folderPath?.join('/') === folderPath;
                       
                       return (
                         <Card
