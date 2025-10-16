@@ -40,6 +40,25 @@ const isValidIPv6 = (ip: string): boolean => {
 };
 
 const isValidIP = (ip: string): boolean => {
+  // Check for CIDR notation (e.g., 192.168.1.0/24)
+  if (ip.includes('/')) {
+    const [network, prefix] = ip.split('/');
+    const prefixNum = parseInt(prefix, 10);
+    
+    // Validate network part is a valid IP
+    if (!isValidIPv4(network) && !isValidIPv6(network)) {
+      return false;
+    }
+    
+    // Validate prefix length
+    if (isNaN(prefixNum) || prefixNum < 0 || prefixNum > 32) {
+      return false;
+    }
+    
+    return true;
+  }
+  
+  // Standard IP validation
   return isValidIPv4(ip) || isValidIPv6(ip);
 };
 

@@ -1,17 +1,17 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { setApiContext } from '@/lib/api';
+import { setApiContext, onApiContextChange, getApiContext } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
-export type Role = 'systemAdmin' | 'teamLead' | 'member' | 'contentManager' | 'contentViewer' | 'guest';
+export type Role = 'systemAdmin' | 'teamLead' | 'member' | 'contentManager' | 'contentViewer';
 
 type AuthUser = {
   username: string;
   email: string;
   role: Role;
-  expiresAt?: string; // for guests
+  ipBypassExpiresAt?: string | null;
 };
 
 type BootstrapData = {
@@ -21,6 +21,7 @@ type BootstrapData = {
   orgSettings: any;
   userSettings: any;
   permissions: Record<string, any>;
+  permissionsMeta?: Record<string, any>;
   departments: Array<{
     id: string;
     org_id: string;
@@ -43,6 +44,7 @@ type AuthContextValue = {
   isLoading: boolean;
   hasRoleAtLeast: (role: Role) => boolean;
   hasPermission: (permission: string) => boolean;
+  refreshPermissions: () => Promise<void>;
 };
 
 const STORAGE_KEY = 'docustore_auth_v1';
@@ -94,17 +96,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, member: 2, contentManager: 2, teamLead: 3, orgAdmin: 4 };
-        const best = activeOrgs.reduce((acc: any, r: any) => (roleOrder[r.role] > roleOrder[acc.role] ? r : acc), { role: 'guest' });
-        const mapped: Role = best.role === 'orgAdmin'
+        const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, contentManager: 2, member: 2, teamLead: 3, orgAdmin: 4 };
+        const best = activeOrgs.reduce(
+          (acc: any, r: any) => ((roleOrder[r.role] ?? -1) > (roleOrder[acc.role] ?? -1) ? r : acc),
+          activeOrgs[0] || { role: 'member' }
+        );
+        const backendRole = best?.role || 'member';
+        const mapped: Role = backendRole === 'orgAdmin'
           ? 'systemAdmin'
-          : best.role === 'teamLead'
+          : backendRole === 'teamLead'
             ? 'teamLead'
-            : (best.role === 'contentManager' || best.role === 'contentViewer')
-              ? 'member'
-              : (best.role as Role);
-        const selectedOrg = activeOrgs.find((o: any) => o.orgId === firstActiveOrg) || best;
+            : 'member';
         const email = sess.session?.user?.email || sess.session?.user?.id || '';
+        const bypassMeta = bootstrap.permissionsMeta?.security?.ip_bypass;
+        const bypassExpiresAt = bypassMeta?.source === 'timedGrant' ? (bypassMeta.expiresAt as string | undefined) : undefined;
 
         // Store bootstrap data for use by other providers
         setBootstrapData(bootstrap);
@@ -114,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           username: email,
           email,
           role: mapped,
-          expiresAt: selectedOrg?.expiresAt || undefined
+          ipBypassExpiresAt: bypassExpiresAt ?? null
         });
 
         console.log('AuthProvider user set, selectedOrgId:', firstActiveOrg);
@@ -179,19 +184,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       // Map highest org role to app role
-      const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, member: 2, contentManager: 2, teamLead: 3, orgAdmin: 4 };
+      const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, contentManager: 2, member: 2, teamLead: 3, orgAdmin: 4 };
       const activeOrgs = orgs.filter((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now);
-      const best = (activeOrgs || []).reduce((acc: any, r: any) => (roleOrder[r.role] > roleOrder[acc.role] ? r : acc), { role: 'guest' });
-      // Map backend role keys to UI roles
-      const mapped: Role = best.role === 'orgAdmin'
+      const best = (activeOrgs.length > 0 ? activeOrgs : orgs).reduce(
+        (acc: any, r: any) => ((roleOrder[r.role] ?? -1) > (roleOrder[acc.role] ?? -1) ? r : acc),
+        activeOrgs[0] || orgs[0] || { role: 'member' }
+      );
+      const backendRole = best?.role || 'member';
+      const mapped: Role = backendRole === 'orgAdmin'
         ? 'systemAdmin'
-        : best.role === 'teamLead'
+        : backendRole === 'teamLead'
           ? 'teamLead'
-          : (best.role === 'contentManager' || best.role === 'contentViewer')
-            ? 'member'
-            : (best.role as Role);
-      const selectedOrg = (activeOrgs || []).find((o: any) => o.orgId === firstActiveOrg) || best;
-      const signedInUser: AuthUser = { username: data.user.email || data.user.id, email: data.user.email || data.user.id, role: mapped, expiresAt: selectedOrg?.expiresAt || undefined };
+          : 'member';
+      const bypassMeta = bootstrap.permissionsMeta?.security?.ip_bypass;
+      const bypassExpiresAt = bypassMeta?.source === 'timedGrant' ? (bypassMeta.expiresAt as string | undefined) : undefined;
+      const signedInUser: AuthUser = {
+        username: data.user.email || data.user.id,
+        email: data.user.email || data.user.id,
+        role: mapped,
+        ipBypassExpiresAt: bypassExpiresAt ?? null,
+      };
 
       // Store bootstrap data for use by other providers
       setBootstrapData(bootstrap);
@@ -237,36 +249,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasRoleAtLeast = useCallback((role: Role) => {
     if (!user) return false;
-    const order: Role[] = ['guest', 'contentViewer', 'member', 'contentManager', 'teamLead', 'systemAdmin'];
+    const order: Role[] = ['contentViewer', 'contentManager', 'member', 'teamLead', 'systemAdmin'];
     return order.indexOf(user.role) >= order.indexOf(role);
   }, [user]);
+
+  // Refresh permissions when organization context changes
+  const refreshPermissionsForCurrentOrg = useCallback(async () => {
+    if (!bootstrapData || !getApiContext().orgId) return;
+    
+    // When org context changes, we need to refresh the bootstrap data
+    // to get the permissions for the new organization
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session?.access_token) return;
+      
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
+      const currentOrgId = getApiContext().orgId;
+      
+      // Fetch fresh bootstrap data with the current org context
+      const res = await fetch(`${base}/me/bootstrap`, { 
+        headers: { 
+          Authorization: `Bearer ${sess.session.access_token}`,
+          'X-Org-Id': currentOrgId
+        } 
+      });
+      
+      if (res.ok) {
+        const freshBootstrap = await res.json();
+        setBootstrapData(freshBootstrap);
+        setUser(prev => {
+          if (!prev) return prev;
+          const now = Date.now();
+          const orgs = Array.isArray(freshBootstrap.orgs) ? freshBootstrap.orgs : [];
+          const activeOrgs = orgs.filter((o: any) => !o.expiresAt || new Date(o.expiresAt).getTime() > now);
+          const roleOrder: Record<string, number> = { guest: 0, contentViewer: 1, contentManager: 2, member: 2, teamLead: 3, orgAdmin: 4 };
+          const best = (activeOrgs.length > 0 ? activeOrgs : orgs).reduce(
+            (acc: any, r: any) => ((roleOrder[r.role] ?? -1) > (roleOrder[acc.role] ?? -1) ? r : acc),
+            activeOrgs[0] || orgs[0] || { role: prev.role }
+          );
+          const backendRole = best?.role || 'member';
+          const mapped: Role = backendRole === 'orgAdmin'
+            ? 'systemAdmin'
+            : backendRole === 'teamLead'
+              ? 'teamLead'
+              : 'member';
+          const bypassMeta = freshBootstrap.permissionsMeta?.security?.ip_bypass;
+          const bypassExpiresAt = bypassMeta?.source === 'timedGrant' ? (bypassMeta.expiresAt as string | undefined) : undefined;
+          return {
+            ...prev,
+            role: mapped,
+            ipBypassExpiresAt: bypassExpiresAt ?? null,
+          };
+        });
+      }
+    } catch (error) {
+      console.error('Failed to refresh permissions for current org:', error);
+    }
+  }, [bootstrapData]);
+
+  // Listen for organization context changes and refresh permissions
+  useEffect(() => {
+    const off = onApiContextChange(({ orgId }) => {
+      console.log('Organization context changed to:', orgId);
+      refreshPermissionsForCurrentOrg();
+    });
+    return () => { off(); };
+  }, [refreshPermissionsForCurrentOrg]);
 
   const hasPermission = useCallback((permission: string) => {
     if (!bootstrapData?.permissions) return false;
     return !!bootstrapData.permissions[permission];
   }, [bootstrapData]);
 
-  // Auto-logout when guest expiry passes (client-side safeguard; server should also enforce)
+  // Auto-logout when a timed IP bypass expires (client-side safeguard; server should also enforce)
   // Optimized expiration check - only check when needed
   useEffect(() => {
-    if (!user?.expiresAt) return;
-    
-    const end = new Date(user.expiresAt).getTime();
-    const now = Date.now();
-    
-    // If already expired, sign out immediately
-    if (end <= now) {
-      signOut();
-      return;
-    }
-    
-    // Set timer for actual expiration
-    const timeoutId = setTimeout(() => {
-      signOut();
-    }, end - now + 1000);
-    
-    return () => clearTimeout(timeoutId);
-  }, [user?.expiresAt, signOut]);
+    if (!user?.ipBypassExpiresAt) return;
+
+    const checkAndLogout = () => {
+      if (!user?.ipBypassExpiresAt) return;
+      const end = new Date(user.ipBypassExpiresAt).getTime();
+      if (!Number.isFinite(end)) return;
+      if (end <= Date.now()) {
+        signOut();
+      }
+    };
+
+    checkAndLogout();
+    const intervalId = setInterval(checkAndLogout, 60_000);
+    return () => clearInterval(intervalId);
+  }, [user?.ipBypassExpiresAt, signOut]);
 
   const value = useMemo<AuthContextValue>(() => ({
     isAuthenticated: !!user,
@@ -276,8 +348,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
     isLoading,
     hasRoleAtLeast,
-    hasPermission
-  }), [user, bootstrapData, signIn, signOut, isLoading, hasRoleAtLeast, hasPermission]);
+    hasPermission,
+    refreshPermissions: refreshPermissionsForCurrentOrg
+  }), [user, bootstrapData, signIn, signOut, isLoading, hasRoleAtLeast, hasPermission, refreshPermissionsForCurrentOrg]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

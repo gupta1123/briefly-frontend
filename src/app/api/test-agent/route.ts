@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     // Get the organization ID from cookies (same approach as existing API calls)
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const orgId = cookieStore.get('org-id')?.value || cookieStore.get('orgId')?.value;
     
     if (!orgId) {

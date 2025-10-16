@@ -167,7 +167,7 @@ export default function RecycleBinPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Recycle Bin" subtitle="Documents scheduled for purge in 7 days">
+      <AppLayout>
         <div className="p-4 md:p-6 space-y-6">
           <div className="flex items-center justify-between">
             <Skeleton className="h-8 w-48" />
@@ -197,7 +197,7 @@ export default function RecycleBinPage() {
   }
 
   return (
-    <AppLayout title="Recycle Bin" subtitle="Documents scheduled for purge in 7 days">
+    <AppLayout>
       <div className="p-4 md:p-6 space-y-6">
         {/* Header with stats */}
         <Card className="rounded-xl border border-border bg-card shadow-sm card-premium">

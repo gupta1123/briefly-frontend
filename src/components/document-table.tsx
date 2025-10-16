@@ -40,6 +40,7 @@ const typeIcons = {
   Word: <FileCode className="h-5 w-5 text-blue-700" />,
   'Government Circular': <FileText className="h-5 w-5 text-yellow-600" />,
   Invoice: <FileText className="h-5 w-5 text-green-600" />,
+  folder: <FileText className="h-5 w-5 text-purple-500" />,
 };
 
 export default function DocumentTable({ documents, onDelete }: { documents: Document[]; onDelete?: (id: string) => void }) {
@@ -79,7 +80,7 @@ export default function DocumentTable({ documents, onDelete }: { documents: Docu
               <TableRow key={doc.id}>
                 <TableCell className="font-medium w-[45%]">
                   <Link href={`/documents/${doc.id}`} className="flex items-center gap-3 group">
-                    <div className="hidden sm:block shrink-0">{typeIcons[doc.type]}</div>
+                    <div className="hidden sm:block shrink-0">{typeIcons[doc.type] || <FileText className="h-5 w-5 text-gray-500" />}</div>
                     <div className="min-w-0">
                       <div title={doc.name} className="truncate font-semibold max-w-[48ch] group-hover:underline">{doc.name}</div>
                       <div className="truncate text-xs text-muted-foreground sm:hidden">

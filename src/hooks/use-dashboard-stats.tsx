@@ -76,7 +76,10 @@ export function DashboardStatsProvider({ children }: { children: React.ReactNode
     return () => clearTimeout(timer);
   }, [fetchStats]);
 
-  useEffect(() => onApiContextChange(() => { void fetchStats(); }), [fetchStats]);
+  useEffect(() => {
+    const cleanup = onApiContextChange(() => { void fetchStats(); });
+    return () => { cleanup(); };
+  }, [fetchStats]);
 
   const value = useMemo(() => ({ stats, isLoading, error, refetch }), [stats, isLoading, error, refetch]);
   return <DashboardStatsContext.Provider value={value}>{children}</DashboardStatsContext.Provider>;

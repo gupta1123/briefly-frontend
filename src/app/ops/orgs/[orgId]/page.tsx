@@ -145,7 +145,7 @@ export default function OrgOpsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="border rounded p-3">
                 <div className="font-semibold">Seed Roles</div>
-                <div className="text-xs text-muted-foreground mt-1">Why: Org is missing default roles or matrices are empty.<br/>What: Upserts the 6 default roles (orgAdmin, contentManager, teamLead, member, contentViewer, guest) with sane permissions.<br/>Safe: Idempotent.</div>
+                <div className="text-xs text-muted-foreground mt-1">Why: Org is missing default roles or matrices are empty.<br/>What: Upserts the core roles (orgAdmin, contentManager, teamLead, member, contentViewer) with sane permissions.<br/>Safe: Idempotent.</div>
                 <div className="mt-2"><button className="border px-3 py-1 rounded" onClick={fixSeedRoles}>Run</button></div>
               </div>
               <div className="border rounded p-3">

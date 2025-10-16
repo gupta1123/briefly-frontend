@@ -58,6 +58,7 @@ type Department = {
 type TeamMember = {
   userId: string;
   role: 'lead' | 'member' | 'guest';
+  orgRole?: 'orgAdmin' | 'teamLead' | 'member';
   displayName?: string | null;
   email?: string | null;
   avatar?: string | null;
@@ -120,7 +121,17 @@ export default function TeamsManagementNew() {
   const isTeamLead = user?.role === 'teamLead';
   const currentUserId = bootstrapData?.user?.id;
   const canManageMembers = bootstrapData?.permissions?.['org.manage_members'] === true;
-  const canEditUsers = canManageMembers || isTeamLead;
+  const canManageTeamMembers = bootstrapData?.permissions?.['departments.manage_members'] === true;
+  const canEditUsers = canManageMembers || canManageTeamMembers;
+  
+  // Debug logging for permissions
+  console.log('Teams Management Debug:', {
+    userId: currentUserId,
+    canManageMembers,
+    canManageTeamMembers,
+    canEditUsers,
+    allPermissions: bootstrapData?.permissions
+  });
 
   // Teams state
   const [departments, setDepartments] = React.useState<Department[]>([]);
@@ -150,22 +161,22 @@ export default function TeamsManagementNew() {
   const [addMemberMode, setAddMemberMode] = React.useState<'existing' | 'invite' | null>(null);
   const [orgUsers, setOrgUsers] = React.useState<OrgUser[]>([]);
   const [userSearchQuery, setUserSearchQuery] = React.useState('');
+
+  // Remove member confirmation state
+  const [memberToRemove, setMemberToRemove] = React.useState<TeamMember | null>(null);
   const [selectedUserId, setSelectedUserId] = React.useState<string>('');
-  const [selectedRole, setSelectedRole] = React.useState<'member' | 'lead' | 'guest'>('member');
+  const [selectedRole, setSelectedRole] = React.useState<'member' | 'lead'>('member');
 
   // Invite user state
   const [inviteEmail, setInviteEmail] = React.useState('');
   const [inviteName, setInviteName] = React.useState('');
-  const [inviteRole, setInviteRole] = React.useState<'member' | 'guest'>('member');
-  const [inviteAmount, setInviteAmount] = React.useState(3);
-  const [inviteUnit, setInviteUnit] = React.useState<'minutes' | 'hours' | 'days'>('days');
+  const [invitePassword, setInvitePassword] = React.useState('');
+  const [inviteRole, setInviteRole] = React.useState<'member' | 'lead'>('member');
   const [inviting, setInviting] = React.useState(false);
 
   // Edit member state
   const [editingMember, setEditingMember] = React.useState<TeamMember | null>(null);
-  const [editMemberRole, setEditMemberRole] = React.useState<'member' | 'lead' | 'guest'>('member');
-  const [editMemberAmount, setEditMemberAmount] = React.useState(3);
-  const [editMemberUnit, setEditMemberUnit] = React.useState<'minutes' | 'hours' | 'days'>('days');
+  const [editMemberRole, setEditMemberRole] = React.useState<'member' | 'lead'>('member');
   const [editMemberName, setEditMemberName] = React.useState('');
   // Change password modal state
   const [changePasswordMember, setChangePasswordMember] = React.useState<TeamMember | null>(null);
@@ -358,19 +369,27 @@ export default function TeamsManagementNew() {
         description: `${user?.displayName || user?.email || 'User'} added to team`
       });
 
+      // Update department count locally for instant feedback
+      setDepartments(prev => prev.map(dept =>
+        dept.id === selectedTeamId
+          ? { ...dept, member_count: (dept.member_count || 0) + 1 }
+          : dept
+      ));
+
       // Reset form
       setSelectedUserId('');
       setSelectedRole('member');
       setAddMemberMode(null);
       setShowAddMember(false);
 
-      // Explicitly clear cache and refresh data
+      // Clear caches and refresh from server
       const currentOrgId = getApiContext().orgId || '';
       if (currentOrgId && selectedTeamId) {
         clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments?withCounts=1&includeMine=1`);
       }
-      
-      // Refresh data
+
+      // Refresh data from server
       await loadTeamMembers(selectedTeamId);
       await loadTeams();
 
@@ -395,29 +414,20 @@ export default function TeamsManagementNew() {
 
   // Invite new user to team
   const handleInviteUser = async () => {
-    if (!inviteEmail.trim() || !selectedTeamId || operationInProgress) return;
+    if (!inviteEmail.trim() || !invitePassword.trim() || !selectedTeamId || operationInProgress) return;
 
     setInviting(true);
     setOperationInProgress('invite-user');
     try {
       const orgId = getApiContext().orgId || '';
 
-      // Calculate expiration time for guest users
-      let expiresAt: string | undefined;
-      if (inviteRole === 'guest') {
-        const ms = inviteUnit === 'minutes' ? inviteAmount * 60 * 1000 :
-                  inviteUnit === 'hours' ? inviteAmount * 60 * 60 * 1000 :
-                  inviteAmount * 24 * 60 * 60 * 1000;
-        expiresAt = new Date(Date.now() + ms).toISOString();
-      }
-
       const response = await apiFetch(`/orgs/${orgId}/users`, {
         method: 'POST',
         body: {
           email: inviteEmail.trim(),
           display_name: inviteName.trim() || undefined,
-          role: inviteRole,
-          expires_at: expiresAt,
+          role: inviteRole === 'lead' ? 'member' : inviteRole,
+          password: invitePassword
         }
       });
 
@@ -425,17 +435,15 @@ export default function TeamsManagementNew() {
       if (userId) {
         await apiFetch(`/orgs/${orgId}/departments/${selectedTeamId}/users`, {
           method: 'POST',
-          body: { userId, role: inviteRole }
+          body: { userId, role: inviteRole === 'lead' ? 'lead' : 'member' }
         });
 
-        // Optimistic update
-        setMembers(prev => [...prev, {
-          userId,
-          role: inviteRole,
-          displayName: inviteName.trim() || undefined,
-          email: inviteEmail.trim(),
-          expiresAt: expiresAt,
-        }]);
+        // Update department count locally for instant feedback
+        setDepartments(prev => prev.map(dept =>
+          dept.id === selectedTeamId
+            ? { ...dept, member_count: (dept.member_count || 0) + 1 }
+            : dept
+        ));
 
         toast({
           title: 'Success',
@@ -445,19 +453,19 @@ export default function TeamsManagementNew() {
         // Reset form
         setInviteEmail('');
         setInviteName('');
+        setInvitePassword('');
         setInviteRole('member');
-        setInviteAmount(3);
-        setInviteUnit('days');
         setAddMemberMode(null);
         setShowAddMember(false);
 
-        // Explicitly clear cache and refresh data
+        // Clear caches and refresh from server
         const currentOrgId = getApiContext().orgId || '';
         if (currentOrgId && selectedTeamId) {
           clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+          clearCacheForEndpoint(`/orgs/${currentOrgId}/departments?withCounts=1&includeMine=1`);
         }
 
-        // Refresh data
+        // Refresh data from server
         await loadTeamMembers(selectedTeamId);
         await loadTeams();
       }
@@ -561,20 +569,13 @@ export default function TeamsManagementNew() {
     try {
       const orgId = getApiContext().orgId || '';
 
-      // Calculate expiration time for guest users
-      let expiresAt: string | undefined;
-      if (editMemberRole === 'guest') {
-        const ms = editMemberUnit === 'minutes' ? editMemberAmount * 60 * 1000 :
-                  editMemberUnit === 'hours' ? editMemberAmount * 60 * 60 * 1000 :
-                  editMemberAmount * 24 * 60 * 60 * 1000;
-        expiresAt = new Date(Date.now() + ms).toISOString();
-      }
-
       // Prepare update data
-      const updateData: any = {
-        role: editMemberRole,
-        ...(editMemberRole === 'guest' && { expires_at: expiresAt })
-      };
+      const updateData: any = {};
+
+      // Only include role if it's editable (not hidden for team leads editing themselves)
+      if (!(isTeamLead && editingMember?.userId === currentUserId)) {
+        updateData.role = editMemberRole === 'lead' ? 'teamLead' : 'member';
+      }
 
       // Add name if changed
       if (editMemberName !== (editingMember.displayName || '')) {
@@ -624,33 +625,46 @@ export default function TeamsManagementNew() {
     }
   };
 
-  // Remove member from team
-  const handleRemoveMember = async (member: TeamMember) => {
-    if (!selectedTeamId || operationInProgress) return;
+  // Show remove member confirmation
+  const showRemoveMemberConfirmation = (member: TeamMember) => {
+    setMemberToRemove(member);
+  };
+
+  // Remove member from team (called from confirmation modal)
+  const handleRemoveMember = async () => {
+    if (!selectedTeamId || !memberToRemove || operationInProgress) return;
 
     setOperationInProgress('remove-member');
     try {
       const orgId = getApiContext().orgId || '';
 
-      await apiFetch(`/orgs/${orgId}/departments/${selectedTeamId}/users/${member.userId}`, {
+      await apiFetch(`/orgs/${orgId}/departments/${selectedTeamId}/users/${memberToRemove.userId}`, {
         method: 'DELETE'
       });
 
       toast({
         title: 'Success',
-        description: `${member.displayName || member.email || 'Member'} removed from team`
+        description: `${memberToRemove.displayName || memberToRemove.email || 'Member'} removed from team`
       });
 
-      // Explicitly clear cache
+      // Update local state first for instant UI feedback
+      setMembers(prev => prev.filter(m => m.userId !== memberToRemove.userId));
+
+      // Update department count locally for instant feedback
+      setDepartments(prev => prev.map(dept =>
+        dept.id === selectedTeamId
+          ? { ...dept, member_count: Math.max(0, (dept.member_count || 0) - 1) }
+          : dept
+      ));
+
+      // Clear caches and refresh from server
       const currentOrgId = getApiContext().orgId || '';
       if (currentOrgId && selectedTeamId) {
         clearCacheForEndpoint(`/orgs/${currentOrgId}/departments/${selectedTeamId}/users`);
+        clearCacheForEndpoint(`/orgs/${currentOrgId}/departments?withCounts=1&includeMine=1`);
       }
 
-      // Update local state
-      setMembers(prev => prev.filter(m => m.userId !== member.userId));
-
-      // Refresh data
+      // Refresh data from server (will correct any local state discrepancies)
       await loadTeams();
 
     } catch (error) {
@@ -667,6 +681,7 @@ export default function TeamsManagementNew() {
       }
     } finally {
       setOperationInProgress(null);
+      setMemberToRemove(null); // Close the modal
     }
   };
 
@@ -701,7 +716,7 @@ export default function TeamsManagementNew() {
 
   React.useEffect(() => {
     loadTeams();
-  }, [loadTeams]);
+  }, [loadTeams, canManageTeamMembers]); // Reload when permissions change
 
   // Auto-select first team for team leads (they typically only have one team)
   React.useEffect(() => {
@@ -1027,21 +1042,86 @@ export default function TeamsManagementNew() {
                             )}
                           </div>
                         </div>
-                        <Badge
-                          variant={
-                            member.role === 'lead' ? 'default' :
-                            member.role === 'guest' ? 'outline' : 'secondary'
-                          }
-                          className="text-xs"
-                        >
-                          {member.role === 'lead' ? 'Team Lead' :
-                           member.role === 'guest' ? 'Guest' : 'Member'}
-                        </Badge>
+                        <div className="flex gap-1 flex-wrap">
+                          <Badge
+                            variant={
+                              member.role === 'lead' ? 'default' :
+                              member.role === 'guest' ? 'outline' : 'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {member.role === 'lead' ? 'Team Lead' :
+                             member.role === 'guest' ? 'Legacy Guest' : 'Member'}
+                          </Badge>
+                          {member.orgRole === 'orgAdmin' && (
+                            <Badge variant="destructive" className="text-xs">
+                              Org Admin
+                            </Badge>
+                          )}
+                        </div>
                         {(() => {
                           const isCurrentUser = member.userId === currentUserId;
-                          const canModifyCurrentUser = !isCurrentUserTeamLead || !isCurrentUser;
+                          const isOrgAdmin = member.orgRole === 'orgAdmin';
+                          const isMemberTeamLead = member.role === 'lead';
+                          
+                          // System admins can modify anyone except other org admins
+                          if (isAdmin) {
+                            const canModifyCurrentUser = !isOrgAdmin;
+                            if (canModifyCurrentUser && canEditUsers) {
+                              return (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {canEditUsers && (
+                                      <>
+                                        <DropdownMenuItem
+                                          onClick={() => {
+                                            setEditingMember(member);
+                                            setEditMemberRole(member.role === 'lead' ? 'lead' : 'member');
+                                            setEditMemberName(member.displayName || '');
+                                          }}
+                                        >
+                                          <Edit className="w-4 h-4 mr-2" />
+                                          Edit Details
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onClick={() => setChangePasswordMember(member)}
+                                        >
+                                          <Key className="w-4 h-4 mr-2" />
+                                          Change Password
+                                        </DropdownMenuItem>
+                                        {!isCurrentUser && (
+                                          <DropdownMenuItem
+                                            className="text-red-600"
+                                            onClick={() => showRemoveMemberConfirmation(member)}
+                                          >
+                                            <Trash2 className="w-4 h-4 mr-2" />
+                                            Remove from Team
+                                          </DropdownMenuItem>
+                                        )}
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              );
+                            } else {
+                              return null;
+                            }
+                          }
+                          
+                          // Non-system admin logic (existing logic)
+                          // Users with team management permissions can modify members in their teams
+                          // Team leads can modify themselves but not org admins or other team leads
+                          // Others cannot modify team leads, org admins, or themselves
+                          const canModifyCurrentUser = (isTeamLead || canManageTeamMembers) ?
+                            (isCurrentUser || (!isOrgAdmin && !isMemberTeamLead)) :
+                            (!isMemberTeamLead && !isCurrentUser && !isOrgAdmin);
 
-                          if (canModifyCurrentUser && !isTeamLead) {
+                          if (canModifyCurrentUser && canEditUsers) {
                             return (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1055,10 +1135,8 @@ export default function TeamsManagementNew() {
                                       <DropdownMenuItem
                                         onClick={() => {
                                           setEditingMember(member);
-                                          setEditMemberRole(member.role);
+                                          setEditMemberRole(member.role === 'lead' ? 'lead' : 'member');
                                           setEditMemberName(member.displayName || '');
-                                          setEditMemberAmount(3);
-                                          setEditMemberUnit('days');
                                         }}
                                       >
                                         <Edit className="w-4 h-4 mr-2" />
@@ -1070,20 +1148,22 @@ export default function TeamsManagementNew() {
                                         <Key className="w-4 h-4 mr-2" />
                                         Change Password
                                       </DropdownMenuItem>
+                                      {!isCurrentUser && (
+                                        <DropdownMenuItem
+                                          className="text-red-600"
+                                          onClick={() => showRemoveMemberConfirmation(member)}
+                                        >
+                                          <Trash2 className="w-4 h-4 mr-2" />
+                                          Remove from Team
+                                        </DropdownMenuItem>
+                                      )}
                                     </>
                                   )}
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={() => handleRemoveMember(member)}
-                                  >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Remove from Team
-                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             );
                           } else {
-                            // Current user is team lead - show nothing
+                            // Cannot modify this user - show nothing
                             return null;
                           }
                         })()}
@@ -1208,13 +1288,12 @@ export default function TeamsManagementNew() {
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium">Role</label>
-                        <Select value={selectedRole} onValueChange={(value: 'member' | 'lead' | 'guest') => setSelectedRole(value)}>
+                        <Select value={selectedRole} onValueChange={(value: 'member' | 'lead') => setSelectedRole(value)}>
                           <SelectTrigger className="mt-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="guest">Guest</SelectItem>
                             {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
                           </SelectContent>
                         </Select>
@@ -1264,46 +1343,31 @@ export default function TeamsManagementNew() {
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium">Organization Role</label>
-                    <Select value={inviteRole} onValueChange={(value: 'member' | 'guest') => setInviteRole(value)}>
+                    <label className="text-sm font-medium">Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter a password for the user"
+                      value={invitePassword}
+                      onChange={(e) => setInvitePassword(e.target.value)}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      User will need this password to login
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Team Role</label>
+                    <Select value={inviteRole} onValueChange={(value: 'member' | 'lead') => setInviteRole(value)}>
                       <SelectTrigger className="mt-1">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="member">Member</SelectItem>
-                        <SelectItem value="guest">Guest</SelectItem>
+                        <SelectItem value="lead">Team Lead</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  {inviteRole === 'guest' && (
-                    <div>
-                      <label className="text-sm font-medium">Access Duration</label>
-                      <div className="flex gap-2 mt-1">
-                        <Input
-                          type="number"
-                          min={1}
-                          className="w-20"
-                          placeholder="Qty"
-                          value={inviteAmount}
-                          onChange={(e) => setInviteAmount(Number(e.target.value))}
-                        />
-                        <Select value={inviteUnit} onValueChange={(value: 'minutes' | 'hours' | 'days') => setInviteUnit(value)}>
-                          <SelectTrigger className="w-28">
-                            <SelectValue placeholder="Unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="minutes">Minutes</SelectItem>
-                            <SelectItem value="hours">Hours</SelectItem>
-                            <SelectItem value="days">Days</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Guest access will expire in {inviteAmount} {inviteUnit}
-                      </p>
-                    </div>
-                  )}
 
                   <div className="flex gap-2 justify-end">
                     <Button
@@ -1311,16 +1375,15 @@ export default function TeamsManagementNew() {
                       onClick={() => {
                         setInviteEmail('');
                         setInviteName('');
+                        setInvitePassword('');
                         setInviteRole('member');
-                        setInviteAmount(3);
-                        setInviteUnit('days');
                       }}
                     >
                       Clear
                     </Button>
                     <Button
                       onClick={handleInviteUser}
-                      disabled={!inviteEmail.trim() || inviting}
+                      disabled={!inviteEmail.trim() || !invitePassword.trim() || inviting}
                     >
                       {inviting ? 'Inviting...' : 'Send Invitation'}
                     </Button>
@@ -1361,26 +1424,27 @@ export default function TeamsManagementNew() {
                     <p className="text-sm text-muted-foreground">{editingMember.email}</p>
                     {editingMember.role === 'guest' && editingMember.expiresAt && (
                       <p className="text-xs text-orange-600 mt-1">
-                        Current expires: {new Date(editingMember.expiresAt).toLocaleString()}
+                        Legacy guest access expires: {new Date(editingMember.expiresAt).toLocaleString()}
                       </p>
                     )}
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium">Role</label>
-                  <Select value={editMemberRole} onValueChange={(value: 'member' | 'lead' | 'guest') => setEditMemberRole(value)}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="member">Member</SelectItem>
-                      {/* Only allow guest role for new users, not existing ones */}
-                      {!editingMember && <SelectItem value="guest">Guest</SelectItem>}
-                      {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Hide role field for team leads editing themselves */}
+                {!(isTeamLead && editingMember?.userId === currentUserId) && (
+                  <div>
+                    <label className="text-sm font-medium">Role</label>
+                    <Select value={editMemberRole} onValueChange={(value: 'member' | 'lead') => setEditMemberRole(value)}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="member">Member</SelectItem>
+                        {isAdmin && <SelectItem value="lead">Team Lead</SelectItem>}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-sm font-medium">Display Name</label>
@@ -1395,38 +1459,6 @@ export default function TeamsManagementNew() {
                     Leave empty to keep current name
                   </p>
                 </div>
-
-
-
-                {editMemberRole === 'guest' && (
-                  <div>
-                    <label className="text-sm font-medium">Access Duration</label>
-                    <div className="flex gap-2 mt-1">
-                      <Input
-                        type="number"
-                        min={1}
-                        className="w-20"
-                        placeholder="Qty"
-                        value={editMemberAmount}
-                        onChange={(e) => setEditMemberAmount(Number(e.target.value))}
-                      />
-                      <Select value={editMemberUnit} onValueChange={(value: 'minutes' | 'hours' | 'days') => setEditMemberUnit(value)}>
-                        <SelectTrigger className="w-28">
-                          <SelectValue placeholder="Unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="minutes">Minutes</SelectItem>
-                          <SelectItem value="hours">Hours</SelectItem>
-                          <SelectItem value="days">Days</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Guest access will expire in {editMemberAmount} {editMemberUnit}
-                    </p>
-                  </div>
-                )}
-
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" onClick={() => setEditingMember(null)}>
                     Cancel
@@ -1575,6 +1607,31 @@ export default function TeamsManagementNew() {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={handleUpdateTeam}>
                 Update Team
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Remove Member Confirmation Modal */}
+      {memberToRemove && (
+        <AlertDialog open={!!memberToRemove} onOpenChange={() => setMemberToRemove(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove team member?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove <strong>{memberToRemove.displayName || memberToRemove.email || 'this member'}</strong> from the team? 
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleRemoveMember}
+                className="bg-red-600 hover:bg-red-700"
+                disabled={operationInProgress === 'remove-member'}
+              >
+                {operationInProgress === 'remove-member' ? 'Removing...' : 'Remove Member'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

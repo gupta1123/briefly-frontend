@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Download, Pencil, Trash2, Copy, FileText as FileTextIcon, User, UserCheck, Calendar, Tag, MessageSquare, Hash, Bookmark, FolderOpen, MapPin, Info, FileType, HardDrive, Link as LinkIcon } from 'lucide-react';
+import { ViewAccessDenied } from '@/components/access-denied';
 import { useDocuments } from '@/hooks/use-documents';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch, getApiContext } from '@/lib/api';
@@ -25,6 +26,11 @@ export default function DocumentDetailPage() {
   const router = useRouter();
   const { getDocumentById, removeDocument, setCurrentVersion, unlinkFromVersionGroup, documents, refresh } = useDocuments();
   const { hasRoleAtLeast, hasPermission, isLoading: authLoading, user } = useAuth();
+  
+  // Check document permissions
+  const canReadDocuments = hasPermission('documents.read');
+  const canUpdateDocuments = hasPermission('documents.update');
+  const canDeleteDocuments = hasPermission('documents.delete');
   const { departments } = useDepartments();
   const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -307,7 +313,16 @@ export default function DocumentDetailPage() {
       backHref = '/documents';
       backLabel = 'Back to Documents';
   }
-}
+  }
+
+  // Check if user has permission to read documents
+  if (!canReadDocuments) {
+    return (
+      <AppLayout>
+        <ViewAccessDenied />
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -352,9 +367,9 @@ export default function DocumentDetailPage() {
                 const myDeptIds = new Set((departments || []).map((d:any) => d.id));
                 const docDeptId = (doc as any).departmentId || (doc as any).department_id || null;
                 const isAdmin = user?.role === 'systemAdmin';
-                const canEdit = hasRoleAtLeast('member') && (isAdmin || (docDeptId && myDeptIds.has(docDeptId)));
-                const canDelete = canEdit && hasPermission('documents.delete');
-                return canEdit ? (
+                const canEdit = hasRoleAtLeast('member') && (isAdmin || (docDeptId && myDeptIds.has(docDeptId))) && canUpdateDocuments;
+                const canDelete = hasRoleAtLeast('member') && (isAdmin || (docDeptId && myDeptIds.has(docDeptId))) && canDeleteDocuments;
+                return (canEdit || canDelete) ? (
                   <>
                     <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadContent(doc, extractionSummary)}>
                       <Download className="h-4 w-4" /> Download
@@ -364,9 +379,11 @@ export default function DocumentDetailPage() {
                         <Trash2 className="h-4 w-4" /> Delete
                       </Button>
                     )}
-                    <Button asChild size="sm" className="gap-2">
-                      <Link href={`/documents/${doc.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link>
-                    </Button>
+                    {canEdit && (
+                      <Button asChild size="sm" className="gap-2">
+                        <Link href={`/documents/${doc.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link>
+                      </Button>
+                    )}
                   </>
                 ) : null;
               })()}

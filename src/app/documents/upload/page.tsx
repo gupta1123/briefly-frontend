@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Check, UploadCloud, X, FileText, User, UserCheck, Calendar, Tag, FolderOpen, MessageSquare, Hash, Bookmark, Link as LinkIcon } from 'lucide-react';
+import { AccessDenied } from '@/components/access-denied';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
  
@@ -103,7 +104,7 @@ function UploadContent() {
   const [extracted, setExtracted] = useState<Extracted | null>(null);
   const { folders, createFolder } = useDocuments();
   const [preferredBaseId, setPreferredBaseId] = useState<string | null>(null);
-  const { hasRoleAtLeast } = useAuth();
+  const { hasRoleAtLeast, hasPermission } = useAuth();
   const [folderPath, setFolderPath] = useState<string[]>([]);
   const searchParams = useSearchParams();
   
@@ -772,6 +773,24 @@ function UploadContent() {
     }
   };
 
+  // Check if user has permission to create documents
+  const canCreateDocuments = hasPermission('documents.create');
+  
+  // Show access restricted message if user doesn't have upload permission
+  if (!canCreateDocuments) {
+    return (
+      <AppLayout>
+        <AccessDenied
+          title="Upload Permission Required"
+          message="You don't have permission to upload documents. Please contact your administrator if you believe this is an error."
+          backHref="/documents"
+          backLabel="Back to Documents"
+          icon={<UploadCloud className="h-8 w-8 text-muted-foreground" />}
+        />
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div className="p-0 md:p-0 space-y-6">
@@ -1240,13 +1259,6 @@ function UploadContent() {
                               Document Date
                             </label>
                             <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
-                        </div>
-                        <div>
-                            <label className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Tag className="h-3 w-3" />
-                            Document Type
-                          </label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
                         </div>
                         <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">

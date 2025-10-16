@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { apiFetch, getApiContext } from '@/lib/api';
 
+
 type OrgRole = {
   org_id: string;
   key: string;
@@ -16,22 +17,92 @@ type OrgRole = {
   permissions: Record<string, boolean>;
 };
 
-const PERMISSIONS: { key: string; label: string; group: string }[] = [
-  { key: 'org.manage_members', label: 'Manage Members', group: 'Organization' },
-  { key: 'org.update_settings', label: 'Update Settings', group: 'Organization' },
-  { key: 'security.ip_bypass', label: 'Bypass IP Allowlist', group: 'Security' },
-  { key: 'documents.read', label: 'Read Documents', group: 'Documents' },
-  { key: 'documents.create', label: 'Create Documents', group: 'Documents' },
-  { key: 'documents.update', label: 'Update Documents', group: 'Documents' },
-  { key: 'documents.delete', label: 'Delete Documents', group: 'Documents' },
-  { key: 'documents.move', label: 'Move Documents', group: 'Documents' },
-  { key: 'documents.link', label: 'Link Documents', group: 'Documents' },
-  { key: 'documents.version.manage', label: 'Manage Versions', group: 'Documents' },
-  { key: 'documents.bulk_delete', label: 'Bulk Delete', group: 'Documents' },
-  { key: 'storage.upload', label: 'Upload to Storage', group: 'Storage' },
-  { key: 'search.semantic', label: 'Semantic Search', group: 'Search' },
-  { key: 'chat.save_sessions', label: 'Save Chat Sessions', group: 'Chat' },
-  { key: 'audit.read', label: 'Read Audit Log', group: 'Audit' },
+// User-friendly permission categories - hide technical details
+const PERMISSION_CATEGORIES = [
+  {
+    title: 'Documents',
+    description: 'What users can do with documents',
+    permissions: [
+      {
+        key: 'documents.read',
+        label: 'View Documents',
+        description: 'Can view and search documents',
+        userFriendly: true
+      },
+      {
+        key: 'documents.create',
+        label: 'Upload Documents',
+        description: 'Can upload new documents to the system',
+        userFriendly: true
+      },
+      {
+        key: 'documents.update',
+        label: 'Edit Documents',
+        description: 'Can modify existing documents',
+        userFriendly: true
+      },
+      {
+        key: 'documents.delete',
+        label: 'Delete Documents',
+        description: 'Can remove documents from the system',
+        userFriendly: true
+      }
+    ]
+  },
+  {
+    title: 'Organization',
+    description: 'Administrative capabilities',
+    permissions: [
+      {
+        key: 'org.manage_members',
+        label: 'Manage Users & Teams',
+        description: 'Can manage user accounts and team membership across the organization',
+        userFriendly: true
+      },
+      {
+        key: 'departments.manage_members',
+        label: 'Manage Team Members',
+        description: 'Can add, remove, and manage users within their own teams',
+        userFriendly: true
+      }
+    ]
+  },
+  {
+    title: 'Security',
+    description: 'Access control and security features',
+    permissions: [
+      {
+        key: 'security.ip_bypass',
+        label: 'Bypass IP Restrictions',
+        description: 'Can access the organization from any IP address, bypassing IP allowlist restrictions',
+        userFriendly: true
+      }
+    ]
+  },
+  {
+    title: 'Advanced Features',
+    description: 'Specialized functionality',
+    permissions: [
+      {
+        key: 'audit.read',
+        label: 'View Activity Logs',
+        description: 'Can see system activity and audit trail',
+        userFriendly: true
+      }
+    ]
+  }
+];
+
+// Technical permissions that should be hidden from end users but managed in backend
+const HIDDEN_PERMISSIONS = [
+  'org.update_settings',
+  'documents.move',
+  'documents.link',
+  'documents.version.manage',
+  'documents.bulk_delete',
+  'storage.upload',
+  'search.semantic',
+  'departments.read'
 ];
 
 function groupBy<T, K extends string>(list: T[], getKey: (t: T) => K) {
@@ -55,7 +126,7 @@ export default function RolesManagement() {
     setLoading(true);
     try {
       const data = await apiFetch<OrgRole[]>(`/orgs/${orgId}/roles`);
-      const allowed = new Set(['orgAdmin','teamLead','member','guest']);
+      const allowed = new Set(['orgAdmin','teamLead','member','contentViewer','contentManager']);
       setRoles((data || []).filter(r => allowed.has(r.key)));
     } finally {
       setLoading(false);
@@ -80,14 +151,24 @@ export default function RolesManagement() {
 
   const onDelete = async (_role: OrgRole) => {};
 
-  const grouped = groupBy(PERMISSIONS, p => p.group);
+  // Filter permissions to only show user-friendly ones
+  const getVisiblePermissions = (rolePermissions: Record<string, boolean>) => {
+    const visible: Record<string, boolean> = {};
+    Object.entries(rolePermissions).forEach(([key, value]) => {
+      if (!HIDDEN_PERMISSIONS.includes(key)) {
+        visible[key] = value;
+      }
+    });
+    return visible;
+  };
 
   const roleLabel = (key: string, name: string) => {
     switch (key) {
       case 'orgAdmin': return 'Admin';
       case 'teamLead': return 'Team Lead';
       case 'member': return 'Member';
-      case 'guest': return 'Guest';
+      case 'contentManager': return 'Content Manager';
+      case 'contentViewer': return 'Content Viewer';
       default: return name || key;
     }
   };
@@ -120,20 +201,42 @@ export default function RolesManagement() {
                     <Badge variant="outline">System</Badge>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Object.entries(grouped).map(([group, perms]) => (
-                    <div key={group}>
-                      <div className="text-xs font-semibold mb-2">{group}</div>
-                      <div className="space-y-2">
-                        {perms.map(p => (
-                          <label key={p.key} className="flex items-center gap-2 text-sm">
-                            <Checkbox checked={!!role.permissions?.[p.key]} onCheckedChange={(v:any) => onToggle(role, p.key, !!v)} />
-                            <span className="text-xs md:text-sm">{p.label}</span>
-                          </label>
-                        ))}
+                <div className="mt-4 space-y-6">
+                  {PERMISSION_CATEGORIES.map(category => {
+                    const categoryPermissions = category.permissions.filter(p =>
+                      getVisiblePermissions(role.permissions)[p.key] !== undefined
+                    );
+
+                    if (categoryPermissions.length === 0) return null;
+
+                    return (
+                      <div key={category.title}>
+                        <div className="mb-3">
+                          <div className="text-sm font-semibold">{category.title}</div>
+                          <div className="text-xs text-muted-foreground">{category.description}</div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {categoryPermissions.map(p => (
+                            <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                              <div className="flex items-center gap-3">
+                                <Checkbox
+                                  checked={!!role.permissions?.[p.key]}
+                                  onCheckedChange={(v:any) => onToggle(role, p.key, !!v)}
+                                />
+                                <div>
+                                  <div className="text-sm font-medium">{p.label}</div>
+                                  <div className="text-xs text-muted-foreground">{p.description}</div>
+                                </div>
+                              </div>
+                              <Badge variant={!!role.permissions?.[p.key] ? "default" : "secondary"}>
+                                {!!role.permissions?.[p.key] ? "Enabled" : "Disabled"}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

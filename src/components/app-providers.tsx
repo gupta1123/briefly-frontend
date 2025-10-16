@@ -21,17 +21,17 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       } : undefined}
     >
       <SecurityProvider
-        bootstrapData={bootstrapData ? {
+        bootstrapData={bootstrapData?.orgSettings ? {
           orgSettings: {
-            ip_allowlist_enabled: bootstrapData.orgSettings.ip_allowlist_enabled,
-            ip_allowlist_ips: bootstrapData.orgSettings.ip_allowlist_ips
+            ip_allowlist_enabled: bootstrapData.orgSettings?.ip_allowlist_enabled,
+            ip_allowlist_ips: bootstrapData.orgSettings?.ip_allowlist_ips
           }
         } : undefined}
       >
         <CategoriesProvider
-          bootstrapData={bootstrapData ? {
+          bootstrapData={bootstrapData?.orgSettings ? {
             orgSettings: {
-              categories: bootstrapData.orgSettings.categories || []
+              categories: bootstrapData.orgSettings?.categories || []
             }
           } : undefined}
         >

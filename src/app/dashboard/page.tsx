@@ -166,7 +166,7 @@ function TeamLeadMemberCards() {
           setError(response.error);
         } else {
           console.log('📊 [TEAM_LEAD_DASHBOARD] Members received from backend:', response.members?.length || 0);
-          console.log('👥 Member details:', response.members?.map(m => `${m.userId} -> ${m.displayName}`));
+          console.log('👥 Member details:', response.members?.map((m: any) => `${m.userId} -> ${m.displayName}`));
           setMembers(response.members || []);
         }
       } catch (err) {

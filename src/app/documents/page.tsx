@@ -63,8 +63,22 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 function DocumentsPageContent() {
   const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments, refresh } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
-  const { hasRoleAtLeast, hasPermission } = useAuth();
+  const { hasRoleAtLeast, hasPermission, isLoading: authLoading } = useAuth();
   const searchParams = useSearchParams();
+  
+  // Check if user has permission to read documents
+  const canReadDocuments = hasPermission('documents.read');
+  const canCreateDocuments = hasPermission('documents.create');
+  const canUpdateDocuments = hasPermission('documents.update');
+  const canDeleteDocuments = hasPermission('documents.delete');
+  
+  // Prevent loading documents if user doesn't have read permission
+  React.useEffect(() => {
+    if (!authLoading && !canReadDocuments) {
+      console.log('User does not have documents.read permission, skipping document load');
+      return;
+    }
+  }, [authLoading, canReadDocuments]);
   
   // Global debug: Log when departments vs documents are loaded
   React.useEffect(() => {
@@ -73,9 +87,13 @@ function DocumentsPageContent() {
       documentsCount: documents.length,
       departmentsLoading,
       documentsLoading: isLoading,
-      selectedDepartmentId
+      selectedDepartmentId,
+      canReadDocuments,
+      canCreateDocuments,
+      canUpdateDocuments,
+      canDeleteDocuments
     });
-  }, [departments.length, documents.length, departmentsLoading, isLoading, selectedDepartmentId]);
+  }, [departments.length, documents.length, departmentsLoading, isLoading, selectedDepartmentId, canReadDocuments, canCreateDocuments, canUpdateDocuments, canDeleteDocuments]);
   
   // Listen for document deletion events and refresh the list
   useEffect(() => {
@@ -419,7 +437,7 @@ function DocumentsPageContent() {
     } catch {}
   };
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <AppLayout>
         <div className="p-4 md:p-6 space-y-6">
@@ -429,6 +447,28 @@ function DocumentsPageContent() {
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-28" />
             ))}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Check if user has permission to read documents
+  if (!canReadDocuments) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6 space-y-6">
+          <div className="text-center py-12">
+            <div className="mx-auto w-24 h-24 bg-muted rounded-full flex items-center justify-center mb-4">
+              <FileText className="w-12 h-12 text-muted-foreground" />
+            </div>
+            <h2 className="text-2xl font-semibold mb-2">Access Restricted</h2>
+            <p className="text-muted-foreground mb-4">
+              You don't have permission to view documents. Please contact your administrator if you believe this is an error.
+            </p>
+            <Button asChild variant="outline">
+              <Link href="/">Go to Dashboard</Link>
+            </Button>
           </div>
         </div>
       </AppLayout>
@@ -460,7 +500,7 @@ function DocumentsPageContent() {
         </div>
 
         <div className="flex items-center gap-3">
-          {hasRoleAtLeast('member') && (
+          {hasRoleAtLeast('member') && canCreateDocuments && (
           <Button asChild className="gap-2">
             <Link href={`/documents/upload${path.length ? `?path=${encodeURIComponent(path.join('/'))}` : ''}`}><Plus className="h-4 w-4" /> Upload Document</Link>
           </Button>
@@ -532,7 +572,7 @@ function DocumentsPageContent() {
             <Button variant={view === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setView('grid')}><Grid2X2 className="h-4 w-4" /></Button>
             <Button variant={view === 'list' ? 'default' : 'outline'} size="icon" onClick={() => setView('list')}><List className="h-4 w-4" /></Button>
             <Button variant={view === 'cards' ? 'default' : 'outline'} size="icon" onClick={() => setView('cards')}><Grid3X3 className="h-4 w-4" /></Button>
-           {hasRoleAtLeast('member') && (
+           {hasRoleAtLeast('member') && canCreateDocuments && (
            <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
               <DialogTrigger asChild>
                 <Button className="ml-2">New Folder</Button>
@@ -625,12 +665,37 @@ function DocumentsPageContent() {
                     <ThemeIcon icon={FolderIcon} className="h-8 w-8" />
                     <div className="flex-1">
                       <div className="font-medium">{p[p.length - 1]}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-muted-foreground mb-2">
                         {getDocumentsInPath(p).length} items
-                        {(() => {
-                          const metadata = getFolderMetadata(p);
-                          return metadata?.departmentName ? ` • ${metadata.departmentName}` : '';
-                        })()}
+                      </div>
+                      {/* Department/Team Badge */}
+                      <div className="flex items-center gap-2">
+                        {hasRoleAtLeast('teamLead') ? (
+                          (() => {
+                            const folderMetadata = getFolderMetadata(p);
+                            if (folderMetadata?.departmentName) {
+                              return (
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">
+                                  {folderMetadata.departmentName}
+                                </span>
+                              );
+                            }
+
+                            const key = p.join('/');
+                            const ids = folderAccess[key] || [];
+                            if (ids.length === 0) return (
+                              <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">General</span>
+                            );
+                            const first = departments.find(d => d.id === ids[0]);
+                            const rest = ids.length - 1;
+                            return (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={first?.color || 'default'}>{first?.name || '—'}</span>
+                                {rest > 0 && <span className="text-xs text-muted-foreground">+{rest}</span>}
+                              </span>
+                            );
+                          })()
+                        ) : null}
                       </div>
                     </div>
                     {hasPermission('documents.delete') && (
@@ -643,6 +708,7 @@ function DocumentsPageContent() {
                           setFolderToDelete(p);
                           setDeletionMode('move_to_root'); // Reset to default
                         }}
+                        title="Delete folder"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -729,10 +795,7 @@ function DocumentsPageContent() {
                         )}
                       </td>
                       <td className="p-3 text-right flex items-center justify-end gap-3">
-                        <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); setPath(p); }}>Open</button>
-                        {hasRoleAtLeast('teamLead') && (
-                          <button className="text-primary hover:underline" onClick={(e) => { e.stopPropagation(); openShare(p); }}>Share</button>
-                        )}
+                        {/* Open and Share buttons removed */}
                       </td>
                     </tr>
                   ))}
@@ -752,7 +815,7 @@ function DocumentsPageContent() {
                                 autoFocus
                               />
                             ) : (
-                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={hasRoleAtLeast('member') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
+                              <Link href={`/documents/${d.id}`} className="flex items-center gap-2 hover:underline" onDoubleClick={hasRoleAtLeast('member') && canUpdateDocuments ? (e) => { e.preventDefault(); startEdit(d); } : undefined}><ThemeIcon icon={FileText} className="h-4 w-4" /> {d.title || d.name}</Link>
                             )}
                           </PopoverTrigger>
                           <PopoverContent align="start" className="w-96 p-4">
@@ -857,7 +920,7 @@ function DocumentsPageContent() {
                               autoFocus
                             />
                           ) : (
-                            <div className="font-medium line-clamp-2" onDoubleClick={hasRoleAtLeast('member') ? (e) => { e.preventDefault(); startEdit(d); } : undefined}>{d.title || d.name}</div>
+                            <div className="font-medium line-clamp-2" onDoubleClick={hasRoleAtLeast('member') && canUpdateDocuments ? (e) => { e.preventDefault(); startEdit(d); } : undefined}>{d.title || d.name}</div>
                           )}
                         </Link>
                       </CardContent>

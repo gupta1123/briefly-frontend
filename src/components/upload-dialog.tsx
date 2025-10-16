@@ -119,7 +119,7 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
 
   // Folder and department selection
   const [folderPath, setFolderPath] = useState<string[]>([]);
-  const { hasRoleAtLeast } = useAuth();
+  const { hasRoleAtLeast, hasPermission } = useAuth();
   const { folders, createFolder } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartments();
 
@@ -372,6 +372,19 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
       );
     }
   };
+
+  // Check if user has permission to create documents
+  const canCreateDocuments = hasPermission('documents.create');
+  
+  // If user doesn't have upload permission, show disabled button with tooltip
+  if (!canCreateDocuments) {
+    return (
+      <Button disabled title="Upload permission not available">
+        <UploadCloud className="mr-2 h-4 w-4" />
+        Upload Document
+      </Button>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

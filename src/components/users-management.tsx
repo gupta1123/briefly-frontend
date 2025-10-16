@@ -69,9 +69,7 @@ export default function UsersManagement() {
     username: '',
     email: '',
     role: 'member',
-    password: '',
-    amount: 3,
-    unit: 'days' as 'minutes' | 'hours' | 'days'
+    password: ''
   });
   const [inviting, setInviting] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -169,11 +167,6 @@ export default function UsersManagement() {
       });
       return;
     }
-    const ms = form.unit === 'minutes' ? form.amount*60*1000 : 
-               form.unit === 'hours' ? form.amount*60*60*1000 : 
-               form.amount*24*60*60*1000;
-    const expiresAt = form.role === 'guest' ? new Date(Date.now() + ms).toISOString() : undefined;
-    
     // Call backend invite endpoint first; only add to list on success
     try {
       const orgId = getApiContext().orgId || '';
@@ -184,7 +177,6 @@ export default function UsersManagement() {
             email: form.email.trim(),
             display_name: form.username.trim() || undefined,
             role: form.role,
-            expires_at: expiresAt,
             password: form.password ? form.password : undefined,
           },
         });
@@ -196,7 +188,6 @@ export default function UsersManagement() {
           email: form.email.trim(),
           role: form.role as any,
           password: form.password || 'Temp#1234',
-          expiresAt,
         });
 
         toast({
@@ -204,7 +195,7 @@ export default function UsersManagement() {
           description: `${form.email.trim()} has been invited to the organization.`,
         });
 
-        setForm({ username: '', email: '', role: 'member', password: '', amount: 3, unit: 'days' });
+        setForm({ username: '', email: '', role: 'member', password: '' });
         setInviting(false);
         // Refresh users to pull authoritative display names from server for pickers
         await refreshUsers();
@@ -289,7 +280,6 @@ export default function UsersManagement() {
       case 'systemAdmin': return 'System Administrator';
       case 'teamLead': return 'Team Lead';
       case 'member': return 'Member';
-      case 'guest': return 'Guest';
       default: return role;
     }
   };
@@ -303,8 +293,6 @@ export default function UsersManagement() {
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';
       case roleLower.includes('member') || roleLower === 'member':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case roleLower.includes('guest') || roleLower === 'guest':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
       case roleLower.includes('manager') || roleLower === 'manager':
         return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-400';
       case roleLower.includes('viewer') || roleLower === 'viewer':
@@ -371,7 +359,6 @@ export default function UsersManagement() {
                   <SelectContent>
                     {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
                     <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="guest">Guest (Temp)</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input 
@@ -383,37 +370,11 @@ export default function UsersManagement() {
               {form.password && form.password.length < 6 && (
                 <p className="text-[11px] text-destructive">Minimum 6 characters.</p>
               )}
-              {form.role === 'guest' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Input 
-                    type="number" 
-                    min={1} 
-                    placeholder="Duration" 
-                    value={form.amount} 
-                    onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} 
-                  />
-                  <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v as any })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="minutes">Minutes</SelectItem>
-                      <SelectItem value="hours">Hours</SelectItem>
-                      <SelectItem value="days">Days</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
-                    Create
-                  </Button>
-                </div>
-              )}
-              {form.role !== 'guest' && (
-                <div className="flex justify-end">
-                  <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
-                    Create
-                  </Button>
-                </div>
-              )}
+              <div className="flex justify-end">
+                <Button onClick={onCreate} disabled={!!form.password && form.password.length < 6}>
+                  Create
+                </Button>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setInviting(false)}>
@@ -478,7 +439,7 @@ export default function UsersManagement() {
                       </div>
                     </td>
                     <td className="p-4">
-                      {isAdmin ? (
+                      {(isAdmin || isTeamLead) ? (
                         <Select
                           value={u.role as any}
                           onValueChange={async (v) => {
@@ -509,7 +470,8 @@ export default function UsersManagement() {
                             <SelectValue placeholder="Role" />
                           </SelectTrigger>
                           <SelectContent>
-                            {isAdmin && <SelectItem value="systemAdmin">System Administrator</SelectItem>}
+                            {/* Only true system admins can create system administrators */}
+                            {/* Org admins cannot promote others to system admin */}
                             {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
                             <SelectItem value="member">Member</SelectItem>
                             {/* Guest role not allowed for existing users */}
@@ -528,7 +490,7 @@ export default function UsersManagement() {
                             variant="ghost"
                             className="text-blue-600 hover:text-blue-700"
                             onClick={() => setPasswordModal({ isOpen: true, user: u })}
-                            disabled={u.role === 'systemAdmin'}
+                            disabled={u.role === 'systemAdmin' && u.username !== bootstrapData?.user?.id}
                           >
                             <Lock className="w-4 h-4" />
                           </Button>
@@ -537,7 +499,16 @@ export default function UsersManagement() {
                         {/* Delete Button */}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" disabled={!isAdmin || u.role === 'systemAdmin'}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700"
+                              disabled={
+                                (u.role === 'systemAdmin') ||
+                                (!isAdmin && !isTeamLead) ||
+                                (u.username === bootstrapData?.user?.id) // Cannot delete self
+                              }
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -670,7 +641,8 @@ export default function UsersManagement() {
                               <SelectValue placeholder="Role" />
                             </SelectTrigger>
                             <SelectContent>
-                              {isAdmin && <SelectItem value="systemAdmin">System Administrator</SelectItem>}
+                              {/* Only true system admins can create system administrators */}
+                              {/* Org admins cannot promote others to system admin */}
                               {isAdmin && <SelectItem value="teamLead">Team Lead</SelectItem>}
                               <SelectItem value="member">Member</SelectItem>
                             </SelectContent>
@@ -689,7 +661,7 @@ export default function UsersManagement() {
                             variant="ghost"
                             className="text-blue-600 hover:text-blue-700 h-8 w-8 p-0"
                             onClick={() => setPasswordModal({ isOpen: true, user: u })}
-                            disabled={u.role === 'systemAdmin'}
+                            disabled={u.role === 'systemAdmin' && u.username !== bootstrapData?.user?.id}
                           >
                             <Lock className="w-4 h-4" />
                           </Button>

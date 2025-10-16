@@ -56,7 +56,10 @@ export function AuditProvider({ children }: { children: React.ReactNode }) {
   }, [includeSelf]);
 
   useEffect(() => { void fetchServerAudit(); }, [fetchServerAudit]);
-  useEffect(() => onApiContextChange(() => { void fetchServerAudit(); }), [fetchServerAudit]);
+  useEffect(() => {
+    const cleanup = onApiContextChange(() => { void fetchServerAudit(); });
+    return () => { cleanup(); };
+  }, [fetchServerAudit]);
 
   // No localStorage persistence; rely on backend audit endpoints
 

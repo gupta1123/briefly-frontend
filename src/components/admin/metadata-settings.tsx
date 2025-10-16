@@ -13,10 +13,10 @@ import { useToast } from '@/hooks/use-toast';
 import { apiFetch } from '@/lib/api';
 
 export function MetadataSettings() {
-  const [fields, setFields] = useState([]);
+  const [fields, setFields] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingField, setEditingField] = useState(null);
+  const [editingField, setEditingField] = useState<any>(null);
   const [formData, setFormData] = useState({
     field_name: '',
     field_type: 'text',
@@ -73,12 +73,12 @@ export function MetadataSettings() {
 
   const handleUpdateField = async () => {
     try {
-      const updatedField = await apiFetch(`/metadata-config/${editingField.id}`, {
+      const updatedField = await apiFetch(`/metadata-config/${editingField?.id}`, {
         method: 'PATCH',
         body: formData
       });
       
-      setFields(fields.map(f => f.id === editingField.id ? updatedField : f));
+      setFields(fields.map(f => f.id === editingField?.id ? updatedField : f));
       resetForm();
       setEditingField(null);
       setIsDialogOpen(false);
@@ -96,7 +96,7 @@ export function MetadataSettings() {
     }
   };
 
-  const handleDeleteField = async (fieldId) => {
+  const handleDeleteField = async (fieldId: string) => {
     try {
       await apiFetch(`/metadata-config/${fieldId}`, {
         method: 'DELETE'
@@ -133,7 +133,7 @@ export function MetadataSettings() {
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (field) => {
+  const openEditDialog = (field: any) => {
     setFormData({
       field_name: field.field_name,
       field_type: field.field_type,

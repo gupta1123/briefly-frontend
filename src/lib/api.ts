@@ -8,6 +8,48 @@ export type ApiOptions = {
   skipCache?: boolean;
 };
 
+// Flag to prevent infinite loops when checking permissions
+let isCheckingPermissions = false;
+
+// Helper function to check IP bypass permission more reliably
+async function checkIpBypassPermission(): Promise<boolean> {
+  // Prevent infinite loops
+  if (isCheckingPermissions) {
+    console.log('Already checking permissions, using localStorage fallback');
+    const bootstrapData = JSON.parse(localStorage.getItem('bootstrapData') || '{}');
+    return bootstrapData.permissions?.['security.ip_bypass'] === true;
+  }
+  
+  try {
+    isCheckingPermissions = true;
+    
+    // First try to get fresh bootstrap data from the auth context
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session?.access_token) return false;
+    
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
+    const res = await fetch(`${base}/me/bootstrap`, { 
+      headers: { Authorization: `Bearer ${sess.session.access_token}` } 
+    });
+    
+    if (res.ok) {
+      const bootstrap = await res.json();
+      return bootstrap.permissions?.['security.ip_bypass'] === true;
+    }
+    
+    // Fallback to localStorage if API call fails
+    const bootstrapData = JSON.parse(localStorage.getItem('bootstrapData') || '{}');
+    return bootstrapData.permissions?.['security.ip_bypass'] === true;
+  } catch (error) {
+    console.error('Error checking IP bypass permission:', error);
+    // Fallback to localStorage
+    const bootstrapData = JSON.parse(localStorage.getItem('bootstrapData') || '{}');
+    return bootstrapData.permissions?.['security.ip_bypass'] === true;
+  } finally {
+    isCheckingPermissions = false;
+  }
+}
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787';
 
 let currentOrgId = process.env.NEXT_PUBLIC_ORG_ID || '';
@@ -122,10 +164,22 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
 
     // Handle IP blocking specifically
     if (res.status === 403 && errorData?.code === 'IP_NOT_ALLOWED') {
-      // Redirect to IP blocked page
-      if (typeof window !== 'undefined') {
-        window.location.href = '/ip-blocked';
-        return;
+      // Don't redirect if we're already on the IP blocked page or calling the IP check endpoint
+      const isOnIpBlockedPage = typeof window !== 'undefined' && window.location.pathname === '/ip-blocked';
+      const isIpCheckEndpoint = path.includes('/ip-check');
+      
+      if (!isOnIpBlockedPage && !isIpCheckEndpoint && typeof window !== 'undefined') {
+        // Check if user has IP bypass permission before redirecting
+        // Use a more reliable method to check permissions
+        const hasIpBypass = await checkIpBypassPermission();
+        
+        if (!hasIpBypass) {
+          window.location.href = '/ip-blocked';
+          return undefined as T;
+        } else {
+          // User has bypass permission but still got IP blocked - this might be a backend issue
+          console.warn('User has security.ip_bypass permission but still received IP_NOT_ALLOWED error');
+        }
       }
     }
 
@@ -169,6 +223,8 @@ export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Pr
           key.startsWith(`${orgId}:`) && (
             key.includes('/departments/') ||
             key.includes('/users/') ||
+            key.includes('/overrides') ||
+            key.includes('/roles/') ||
           key.includes('/recycle-bin') ||
           key.includes('/documents')
         );

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { H1 } from '@/components/typography';
 import { useAudit } from '@/hooks/use-audit';
 import { useAuth } from '@/hooks/use-auth';
+import { AccessDenied } from '@/components/access-denied';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 
@@ -23,7 +24,7 @@ import { DateRange } from 'react-day-picker';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/page-header';
-import { FileText, User, Calendar as CalendarIcon, Clock, Search, Filter, Eye, Edit, Trash2, Plus, Move, Link as LinkIcon, Unlink, Download, Upload } from 'lucide-react';
+import { FileText, User, Calendar as CalendarIcon, Clock, Search, Filter, Eye, Edit, Trash2, Plus, Move, Link as LinkIcon, Unlink, Download, Upload, Activity } from 'lucide-react';
 
 const TYPE_LABEL: Record<string, string> = {
   login: 'Login',
@@ -257,11 +258,13 @@ export default function AuditPage() {
   if (!canViewAudit) {
     return (
       <AppLayout>
-        <div className="p-4 md:p-6">
-          <div className="rounded-md border p-4 text-sm text-muted-foreground">
-            You do not have access to activity logs. Only organization admins and team leads can view audit logs.
-          </div>
-        </div>
+        <AccessDenied
+          title="Activity Access Restricted"
+          message="You do not have access to activity logs. Only organization admins and team leads can view audit logs."
+          backHref="/dashboard"
+          backLabel="Back to Dashboard"
+          icon={<Activity className="h-8 w-8 text-muted-foreground" />}
+        />
       </AppLayout>
     );
   }

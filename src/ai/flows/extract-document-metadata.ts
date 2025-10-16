@@ -75,7 +75,7 @@ You will receive a document in various formats (PDF, PNG, JPG, DOCX, TXT, MD). Y
 3. Identify the date the document was sent. If you cannot find one, leave it blank.
 4. Identify all distinct pairs of sender and receiver in the document. For each pair, provide the sender and the receiver.
 5. Extract keywords from the document.
-6. Categorize the document into one of the following categories: {{#if availableCategories}}{{#each availableCategories}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}{{else}}General{{/if}}. Choose the single most appropriate category.
+6. Categorize the document into one of the following categories: {{#if availableCategories}}{{#each availableCategories}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}{{else}}General{{/if}}. Choose the single most appropriate category. IMPORTANT: You MUST always select a category from the provided list. If none seem perfect, choose the closest match. Never leave category empty or undefined.
 
 Even if the document is in another language, you must provide the summary, subject, date, sender/receiver pairs, keywords, and category in English.
 
