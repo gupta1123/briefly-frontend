@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AppLayout from '@/components/layout/app-layout';
 import { useDocuments } from '@/hooks/use-documents';
 import { useAuth } from '@/hooks/use-auth';
@@ -8,7 +8,7 @@ import { useSettings } from '@/hooks/use-settings';
 import type { StoredDocument } from '@/lib/types';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Plus, Grid2X2, List, Grid3X3, Folder as FolderIcon, FileText, Trash2, ArrowLeft } from 'lucide-react';
+import { Plus, Grid2X2, List, Grid3X3, Folder as FolderIcon, FileText, Trash2, ArrowLeft, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -61,7 +61,7 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 }
 
 function DocumentsPageContent() {
-  const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments, refresh } = useDocuments();
+  const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments, refresh, ensureFolderMetadata } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
   const { hasRoleAtLeast, hasPermission, isLoading: authLoading } = useAuth();
   const searchParams = useSearchParams();
@@ -123,6 +123,14 @@ function DocumentsPageContent() {
       setPath(pathArray);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    void ensureFolderMetadata([]);
+  }, [ensureFolderMetadata]);
+
+  useEffect(() => {
+    void ensureFolderMetadata(path);
+  }, [path, ensureFolderMetadata]);
   const [view, setView] = useState<ViewMode>('list');
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -171,7 +179,29 @@ function DocumentsPageContent() {
     })();
   }, [currentFolders, canShare, folderAccess]);
 
-  const deptById = (id?: string | null) => departments.find(d => d.id === id) || null;
+  const renderDepartmentBadge = useCallback((deptId: string | null | undefined) => {
+    const id = deptId || null;
+    if (!id) {
+      return (
+        <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">
+          General
+        </span>
+      );
+    }
+    const dept = departments.find(d => d.id === id);
+    if (dept) {
+      return (
+        <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dept.color || 'default'}>
+          {dept.name}
+        </span>
+      );
+    }
+    return (
+      <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="default">
+        Team unavailable
+      </span>
+    );
+  }, [departments]);
   const bulkTagInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   
@@ -505,6 +535,27 @@ function DocumentsPageContent() {
             <Link href={`/documents/upload${path.length ? `?path=${encodeURIComponent(path.join('/'))}` : ''}`}><Plus className="h-4 w-4" /> Upload Document</Link>
           </Button>
           )}
+          
+          {/* Department Filter - Always visible for admins */}
+          {hasRoleAtLeast('systemAdmin') && (
+            <Select 
+              value={selectedDepartmentId || '__all__'} 
+              onValueChange={(v) => setSelectedDepartmentId(v === '__all__' ? null : v)}
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All Departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Departments</SelectItem>
+                {departments.map(d => (
+                  <SelectItem key={d.id} value={d.id}>
+                    <span className="capitalize">{d.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          
           <div className="relative max-w-md">
             <Input placeholder="Search documents..." value={query} onChange={(e) => setQuery(e.target.value)} />
             {query.trim() && (
@@ -725,7 +776,26 @@ function DocumentsPageContent() {
 
         {/* Documents */}
         <div>
-          <h2 className="text-sm font-semibold text-muted-foreground mb-3">Documents</h2>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-muted-foreground">Documents</h2>
+              <span className="text-xs text-muted-foreground">
+                ({filteredDocs.length} {query.trim() ? 'found' : 'in current folder'})
+              </span>
+            </div>
+            {selectedDepartmentId && hasRoleAtLeast('systemAdmin') && (
+              <Badge variant="secondary" className="gap-1">
+                Filtered by: {departments.find(d => d.id === selectedDepartmentId)?.name}
+                <button 
+                  onClick={() => setSelectedDepartmentId(null)}
+                  className="ml-1 hover:bg-muted rounded-full p-0.5"
+                  title="Clear department filter"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
+          </div>
           {view === 'list' ? (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
@@ -832,28 +902,7 @@ function DocumentsPageContent() {
                       <td className="p-3">{d.sender || '—'}</td>
                       <td className="p-3">
                         {hasRoleAtLeast('systemAdmin') ? (
-                          (() => {
-                            const deptId = (d as any).departmentId || (d as any).department_id || null;
-                            console.log('Department lookup debug:', { 
-                              docTitle: d.name, 
-                              deptId, 
-                              availableDepts: departments.map(x => ({ id: x.id, name: x.name }))
-                            });
-                            const dept = departments.find(x => x.id === deptId);
-                            if (!dept) {
-                              // More descriptive fallback when department lookup fails
-                              return (
-                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color="orange" title={`Department ID: ${deptId} not found`}>
-                                  Unknown ({deptId ? deptId.slice(0, 8) + '...' : 'null'})
-                                </span>
-                              );
-                            }
-                            return (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dept.color || 'default'}>{dept.name}</span>
-                              </span>
-                            );
-                          })()
+                          renderDepartmentBadge((d as any).departmentId || (d as any).department_id || null)
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
@@ -902,11 +951,7 @@ function DocumentsPageContent() {
                           <div className="flex items-center justify-between">
                             <ThemeIcon icon={FileText} className="h-8 w-8" />
                             <div className="flex items-center gap-2">
-                              {hasRoleAtLeast('systemAdmin') && (() => {
-                                const deptId = (d as any).departmentId || (d as any).department_id || null;
-                                const dep = departments.find((x:any) => x.id === deptId);
-                                return dep ? <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dep.color || 'default'}>{dep.name}</span> : null;
-                              })()}
+                              {hasRoleAtLeast('systemAdmin') && renderDepartmentBadge((d as any).departmentId || (d as any).department_id || null)}
                               <span className="rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wide">{(d.documentType || d.type)}</span>
                             </div>
                           </div>
@@ -949,11 +994,7 @@ function DocumentsPageContent() {
                           <p className="text-sm text-muted-foreground line-clamp-2">Purpose: {d.aiPurpose}</p>
                         )}
                       </div>
-                      {hasRoleAtLeast('systemAdmin') && (() => {
-                        const deptId = (d as any).departmentId || (d as any).department_id || null;
-                        const dep = departments.find((x:any) => x.id === deptId);
-                        return dep ? <span className="rounded-md border px-2 py-0.5 text-[10px] capitalize" data-color={dep.color || 'default'}>{dep.name}</span> : null;
-                      })()}
+                      {hasRoleAtLeast('systemAdmin') && renderDepartmentBadge((d as any).departmentId || (d as any).department_id || null)}
                     </div>
                     <div className="rounded-md border p-3 text-sm text-muted-foreground flex items-center gap-4">
                       <span>From <span className="text-foreground">{d.sender || '—'}</span> → To <span className="text-foreground">{d.receiver || '—'}</span></span>

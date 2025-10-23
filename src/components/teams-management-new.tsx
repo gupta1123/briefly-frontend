@@ -718,13 +718,13 @@ export default function TeamsManagementNew() {
     loadTeams();
   }, [loadTeams, canManageTeamMembers]); // Reload when permissions change
 
-  // Auto-select first team for team leads (they typically only have one team)
+  // Auto-select first team when teams tab is opened
   React.useEffect(() => {
-    if (isTeamLead && !selectedTeamId && departments.length > 0 && !loading) {
+    if (!selectedTeamId && departments.length > 0 && !loading) {
       const firstTeam = departments[0];
       handleTeamSelect(firstTeam.id);
     }
-  }, [isTeamLead, selectedTeamId, departments, loading]);
+  }, [selectedTeamId, departments, loading]);
 
   return (
     <div className="h-[calc(100vh-200px)] md:h-[600px] border rounded-lg overflow-hidden">

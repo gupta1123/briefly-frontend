@@ -54,32 +54,21 @@ export function DepartmentsProvider({
       }
       setDepartments(list || []);
 
-      // Initialize selection from localStorage or user's department membership flags
+      // Initialize selection from localStorage only (don't auto-select)
       const saved = typeof window !== 'undefined' ? window.localStorage.getItem(LS_KEY) : null;
 
       // Only auto-select if no department is currently selected
       if (!selectedDepartmentId) {
         if (saved && (list || []).some(d => d.id === saved)) {
-          // Removed console.log to prevent performance issues
+          // Restore saved selection from localStorage
           setSelectedDepartmentId(saved);
-        } else {
-          // Use membership flags from bootstrap or API response
-          const memberDepts = (list || []).filter(d => d.is_member);
-          if (memberDepts.length > 0) {
-            // Prefer department where user is a lead, then first membership
-            const leadDept = memberDepts.find(d => d.is_lead);
-            const primaryDeptId = leadDept ? leadDept.id : memberDepts[0].id;
-            // Removed console.log to prevent performance issues
-            setSelectedDepartmentId(primaryDeptId);
-          } else if ((list || []).length) {
-            // Removed console.log to prevent performance issues
-            setSelectedDepartmentId(list[0].id);
-          }
         }
+        // Don't auto-select departments - let user choose explicitly
+        // This prevents unwanted filtering on the documents page
       } else {
         // Validate existing selection is still valid
         if (selectedDepartmentId && !(list || []).some(d => d.id === selectedDepartmentId)) {
-          // Removed console.warn to prevent performance issues
+          // Clear invalid selection
           setSelectedDepartmentId(null);
         }
       }
@@ -95,8 +84,13 @@ export function DepartmentsProvider({
   }, []); // Remove refresh dependency
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && selectedDepartmentId) {
-      window.localStorage.setItem(LS_KEY, selectedDepartmentId);
+    if (typeof window !== 'undefined') {
+      if (selectedDepartmentId) {
+        window.localStorage.setItem(LS_KEY, selectedDepartmentId);
+      } else {
+        // Clear from localStorage when "All Departments" is selected
+        window.localStorage.removeItem(LS_KEY);
+      }
     }
   }, [selectedDepartmentId]);
 

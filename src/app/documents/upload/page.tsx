@@ -42,9 +42,24 @@ type Extracted = {
   metadata: ExtractDocumentMetadataOutput;
 };
 
+type FormData = {
+  title: string;
+  filename: string;
+  sender: string;
+  receiver: string;
+  documentDate: string;
+  documentType: string;
+  folder: string;
+  subject: string;
+  description: string;
+  category: string;
+  keywords: string;
+  tags: string;
+};
+
 function UploadContent() {
   const [files, setFiles] = useState<File[]>([]);
-  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: typeof form; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } }[]>([]);
+  const [queue, setQueue] = useState<{ file: File; progress: number; status: 'idle' | 'uploading' | 'processing' | 'ready' | 'saving' | 'success' | 'error'; note?: string; hash?: string; extracted?: Extracted; form?: FormData; locked?: boolean; previewUrl?: string; rotation?: number; linkMode?: 'new' | 'version'; baseId?: string; candidates?: { id: string; label: string }[]; senderOptions?: string[]; receiverOptions?: string[]; storageKey?: string; geminiFile?: { fileId: string; fileUri: string; mimeType?: string } }[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [carouselMode, setCarouselMode] = useState<boolean>(true);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -59,6 +74,12 @@ function UploadContent() {
   const { categories } = useCategories();
   const { getCategoriesForDepartment } = useUserDepartmentCategories();
   
+  const navigateToFolder = (segments?: string[] | null) => {
+    const cleaned = Array.isArray(segments) ? segments.map((s) => String(s).trim()).filter(Boolean) : [];
+    const dest = cleaned.length ? `?path=${encodeURIComponent(cleaned.join('/'))}` : '';
+    router.push(`/documents${dest}`);
+  };
+  
   // Get categories for the selected department, fallback to org categories
   const availableCategories = useMemo(() => {
     if (selectedDepartmentId) {
@@ -68,38 +89,38 @@ function UploadContent() {
   }, [selectedDepartmentId, getCategoriesForDepartment, categories]);
   
   const saveAllReady = async () => {
-    const readyItems = queue.map((item, index) => ({ item, index })).filter(({ item }) => item.status === 'ready' && !item.locked);
-    
+    const readyItems = queue
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.status === 'ready' && !item.locked);
+
     if (readyItems.length === 0) {
       toast({ title: 'No items to save', description: 'All ready items are already saved or being processed.' });
       return;
     }
 
-    // Save all ready items in parallel, but skip navigation for all except the last one
-    const savePromises = readyItems.map(({ index }, i) => 
-      onDone(index, i < readyItems.length - 1) // Skip navigation for all but the last item
-    );
-    
-    try {
-      await Promise.all(savePromises);
-    } catch (error) {
-      console.error('Error saving all items:', error);
+    let lastPath: string[] | null = null;
+
+    for (const { index } of readyItems) {
+      try {
+        const result = await onDone(index);
+        if (result) lastPath = result.path;
+      } catch (error) {
+        console.error('Error saving item:', error);
+      }
+    }
+
+    if (lastPath) {
+      navigateToFolder(lastPath);
     }
   };
-  const [form, setForm] = useState({
-    title: '',
-    filename: '',
-    sender: '',
-    receiver: '',
-    documentDate: '',
-    documentType: 'General Document',
-    folder: 'No folder (Root)',
-    subject: '',
-    description: '',
-    category: 'General',
-    keywords: '',
-    tags: '',
-  });
+
+  const handleSave = async (index: number) => {
+    const result = await onDone(index);
+    if (!result) return;
+    if (!result.hasMoreReady) {
+      navigateToFolder(result.path);
+    }
+  };
   const [docType, setDocType] = useState<Document['type']>('PDF');
   const [extracted, setExtracted] = useState<Extracted | null>(null);
   const { folders, createFolder } = useDocuments();
@@ -546,230 +567,226 @@ function UploadContent() {
     setQueue([]);
     setActiveIndex(null);
     setExtracted(null);
-    setForm({
-      title: '', filename: '', sender: '', receiver: '', documentDate: '', documentType: 'General Document', folder: 'No folder (Root)', subject: '', description: '', category: 'General', keywords: '', tags: '',
-    });
     inputRef.current && (inputRef.current.value = '');
   };
 
-  const onDone = async (index: number, skipNavigation = false) => {
+  const onDone = async (index: number): Promise<{ path: string[]; hasMoreReady: boolean } | null> => {
     const item = queue[index];
-    if (!item || !item.extracted || !item.form || item.status === 'success' || item.locked) return;
-    
-    // Check if admin has selected department (required for proper access control)
+    if (!item || !item.extracted || !item.form || item.status === 'success' || item.locked) return null;
+
     if (hasRoleAtLeast('systemAdmin') && folderPath.length === 0 && !selectedDepartmentId) {
-      toast({ 
-        title: 'Department selection required', 
-        description: 'Please select a department before uploading documents.', 
-        variant: 'destructive' 
+      toast({
+        title: 'Department selection required',
+        description: 'Please select a department before uploading documents.',
+        variant: 'destructive'
       });
-      return;
+      return null;
     }
-    
-    // Immediately lock the item to prevent duplicate saves
+
+    const currentFolderPath = folderPath.slice();
+
     setQueue(prev => prev.map((q, i) => i === index ? { ...q, locked: true, status: 'saving' } : q));
-    
-    try {
-    // Use the original summary without padding extra content
-    const summary = (item.extracted.metadata.summary || '').trim();
-    const keywordsArray = form.keywords
-      .split(',')
-      .map(k => k.trim())
-      .filter(Boolean);
-    const tagsArray = form.tags
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
 
-    const newDoc: StoredDocument = {
-      id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: (form.title || item.extracted.metadata.title || item.file.name),
-      type: docType,
-      uploadedAt: new Date(),
-      version: 1,
-      keywords: (keywordsArray.length ? keywordsArray : (item.extracted.metadata.keywords || [])).filter(Boolean),
-      summary: summary,
-      content: item.extracted.ocrText,
-      title: form.title || item.extracted.metadata.title || item.file.name,
-      filename: form.filename || item.file.name,
-      sender: form.sender || item.extracted.metadata.sender,
-      receiver: form.receiver || item.extracted.metadata.receiver,
-      documentDate: form.documentDate || item.extracted.metadata.documentDate,
-      documentType: form.documentType || item.extracted.metadata.documentType,
-      folder: 'root',
-      folderPath,
-      subject: form.subject || item.extracted.metadata.subject || (item.extracted.metadata.title || ''),
-      description: form.description || item.extracted.metadata.description || summary,
-      category: form.category || item.extracted.metadata.category,
-      tags: (tagsArray.length ? tagsArray : (item.extracted.metadata.tags || [])).filter(Boolean),
-      contentHash: item.hash,
-    };
-    // Attach department selection for backend creation
-    (newDoc as any).departmentId = selectedDepartmentId || undefined;
-    
-    console.log('Creating document with folderPath:', folderPath, 'Type:', typeof folderPath, 'Is Array:', Array.isArray(folderPath));
-    console.log('newDoc.folderPath:', newDoc.folderPath, 'Type:', typeof newDoc.folderPath, 'Is Array:', Array.isArray(newDoc.folderPath));
-    
-    // Ensure nested folders exist - create each level sequentially
-    console.log('🔍 Creating folder structure for path:', folderPath);
     try {
-      for (let i = 0; i < folderPath.length; i++) {
-        const slice = folderPath.slice(0, i + 1);
-        const parentPath = slice.slice(0, -1);
-        const folderName = slice[slice.length - 1];
-        
-        console.log(`🔍 Level ${i + 1}: Creating folder "${folderName}" with parent path:`, parentPath);
-        
-        // Check if folder already exists before creating
-        const existing = folders.find(f => JSON.stringify(f) === JSON.stringify(slice));
-        if (!existing) {
-          console.log(`🔍 Folder "${folderName}" doesn't exist, creating...`);
-          const result = await createFolder(parentPath, folderName);
-          console.log(`🔍 Folder creation result:`, result);
-        } else {
-          console.log(`🔍 Folder "${folderName}" already exists, skipping creation`);
+      const summary = (item.extracted.metadata.summary || '').trim();
+      const keywordsArray = (item.form.keywords || '')
+        .split(',')
+        .map((k: string) => k.trim())
+        .filter(Boolean);
+      const tagsArray = (item.form.tags || '')
+        .split(',')
+        .map((t: string) => t.trim())
+        .filter(Boolean);
+
+      const newDoc: StoredDocument = {
+        id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: (item.form.title || item.extracted.metadata.title || item.file.name),
+        type: docType,
+        uploadedAt: new Date(),
+        version: 1,
+        keywords: (keywordsArray.length ? keywordsArray : (item.extracted.metadata.keywords || [])).filter(Boolean),
+        summary,
+        content: item.extracted.ocrText,
+        title: item.form.title || item.extracted.metadata.title || item.file.name,
+        filename: item.form.filename || item.file.name,
+        sender: item.form.sender || item.extracted.metadata.sender,
+        receiver: item.form.receiver || item.extracted.metadata.receiver,
+        documentDate: item.form.documentDate || item.extracted.metadata.documentDate,
+        documentType: item.form.documentType || item.extracted.metadata.documentType,
+        folder: 'root',
+        folderPath: [...currentFolderPath],
+        subject: item.form.subject || item.extracted.metadata.subject || (item.extracted.metadata.title || ''),
+        description: item.form.description || item.extracted.metadata.description || summary,
+        category: item.form.category || item.extracted.metadata.category,
+        tags: (tagsArray.length ? tagsArray : (item.extracted.metadata.tags || [])).filter(Boolean),
+        contentHash: item.hash,
+      };
+      (newDoc as any).departmentId = selectedDepartmentId || undefined;
+
+      console.log('Creating document with folderPath:', currentFolderPath, 'Type:', typeof currentFolderPath, 'Is Array:', Array.isArray(currentFolderPath));
+
+      console.log('🔍 Creating folder structure for path:', currentFolderPath);
+      try {
+        for (let i = 0; i < currentFolderPath.length; i++) {
+          const slice = currentFolderPath.slice(0, i + 1);
+          const parentPath = slice.slice(0, -1);
+          const folderName = slice[slice.length - 1];
+
+          console.log(`🔍 Level ${i + 1}: Creating folder "${folderName}" with parent path:`, parentPath);
+
+          const existing = folders.find(f => JSON.stringify(f) === JSON.stringify(slice));
+          if (!existing) {
+            console.log(`🔍 Folder "${folderName}" doesn't exist, creating...`);
+            const result = await createFolder(parentPath, folderName);
+            console.log(`🔍 Folder creation result:`, result);
+          } else {
+            console.log(`🔍 Folder "${folderName}" already exists, skipping creation`);
+          }
         }
+        console.log('✅ Folder structure creation completed successfully');
+      } catch (error) {
+        console.error('❌ Failed to create folder structure:', error);
+        toast({
+          title: 'Folder creation failed',
+          description: `Could not create folder structure: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          variant: 'destructive'
+        });
       }
-      console.log('✅ Folder structure creation completed successfully');
-    } catch (error) {
-      console.error('❌ Failed to create folder structure:', error);
-      toast({ 
-        title: 'Folder creation failed', 
-        description: `Could not create folder structure: ${error instanceof Error ? error.message : 'Unknown error'}`, 
-        variant: 'destructive' 
+
+      if (!newDoc.title) {
+        toast({
+          title: 'Missing required fields',
+          description: 'Title is required. Please fill it before saving.',
+          variant: 'destructive'
+        });
+        setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'ready', locked: false } : q));
+        return null;
+      }
+
+      if (item.linkMode === 'version' && !item.baseId) {
+        toast({
+          title: 'Version linking error',
+          description: 'Please select a document to link this as a new version, or choose "New Document".',
+          variant: 'destructive'
+        });
+        setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'ready', locked: false } : q));
+        return null;
+      }
+
+      let savedDoc: StoredDocument | null = null;
+
+      if (item.linkMode === 'version' && item.baseId) {
+        console.log('🔍 Linking as new version to document:', item.baseId);
+        const created = await linkAsNewVersion(item.baseId, newDoc as any);
+        console.log('✅ Version linked successfully:', created);
+        console.log('📋 Linked document ID:', created?.id);
+        console.log('📋 Linked document keys:', Object.keys(created || {}));
+
+        if (!created || !created.id) {
+          throw new Error(`Version linking failed: no ID returned. Created object: ${JSON.stringify(created)}`);
+        }
+
+        try {
+          const orgId = getApiContext().orgId || '';
+          console.log('🔍 Finalizing upload for versioned document:', created.id);
+          await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
+            method: 'POST',
+            body: {
+              documentId: created.id,
+              storageKey: item.storageKey,
+              fileSizeBytes: item.file.size,
+              mimeType: item.file.type || 'application/octet-stream',
+              contentHash: item.hash,
+              geminiFileId: item.geminiFile?.fileId,
+              geminiFileUri: item.geminiFile?.fileUri,
+              geminiFileMimeType: item.geminiFile?.mimeType,
+            },
+          });
+          try {
+            await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
+              method: 'POST',
+              body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
+            });
+          } catch {}
+        } catch (e) {
+          console.error('Finalize failed for version:', e);
+          throw e;
+        }
+        savedDoc = created;
+      } else {
+        console.log('🔍 Creating new document with data:', {
+          title: newDoc.title,
+          folderPath: newDoc.folderPath,
+          type: newDoc.type
+        });
+        const created = await addDocument(newDoc);
+        console.log('✅ Document created successfully:', created);
+        console.log('📋 Created document ID:', created?.id);
+        console.log('📋 Created document keys:', Object.keys(created || {}));
+
+        if (!created || !created.id) {
+          throw new Error(`Document creation failed: no ID returned. Created object: ${JSON.stringify(created)}`);
+        }
+
+        try {
+          const orgId = getApiContext().orgId || '';
+          console.log('🔍 Finalizing upload for document:', created.id);
+          await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
+            method: 'POST',
+            body: {
+              documentId: created.id,
+              storageKey: item.storageKey,
+              fileSizeBytes: item.file.size,
+              mimeType: item.file.type || 'application/octet-stream',
+              contentHash: item.hash,
+              geminiFileId: item.geminiFile?.fileId,
+              geminiFileUri: item.geminiFile?.fileUri,
+              geminiFileMimeType: item.geminiFile?.mimeType,
+            },
+          });
+          try {
+            await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
+              method: 'POST',
+              body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
+            });
+          } catch (extractionError) {
+            console.warn('Failed to save extraction data (non-critical):', extractionError);
+          }
+        } catch (uploadError) {
+          console.error('Critical upload error:', uploadError);
+          throw uploadError;
+        }
+        savedDoc = created;
+      }
+
+      let nextQueueSnapshot: typeof queue = [];
+      setQueue(prev => {
+        nextQueueSnapshot = prev.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q);
+        return nextQueueSnapshot;
       });
-      // Continue with document creation even if folder creation fails
-    }
-    // Link choice
-    // Basic required fields enforcement
-    if (!newDoc.title) {
-      toast({ title: 'Missing required fields', description: 'Title is required. Please fill it before saving.', variant: 'destructive' });
-      return;
-    }
-
-    // Version linking validation
-    if (item.linkMode === 'version' && !item.baseId) {
-      toast({ title: 'Version linking error', description: 'Please select a document to link this as a new version, or choose "New Document".', variant: 'destructive' });
-      return;
-    }
-
-    if (item.linkMode === 'version' && item.baseId) {
-      console.log('🔍 Linking as new version to document:', item.baseId);
-      const created = await linkAsNewVersion(item.baseId, newDoc as any);
-      console.log('✅ Version linked successfully:', created);
-      console.log('📋 Linked document ID:', created?.id);
-      console.log('📋 Linked document keys:', Object.keys(created || {}));
-
-      // Validate that we have the required document ID
-      if (!created || !created.id) {
-        throw new Error(`Version linking failed: no ID returned. Created object: ${JSON.stringify(created)}`);
-      }
+      toast({ title: 'Saved', description: `${item.file.name} stored.` });
 
       try {
-        const orgId = getApiContext().orgId || '';
-        console.log('🔍 Finalizing upload for versioned document:', created.id);
-        await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
-          method: 'POST',
-          body: {
-            documentId: created.id,
-            storageKey: item.storageKey,
-            fileSizeBytes: item.file.size,
-            mimeType: item.file.type || 'application/octet-stream',
-            contentHash: item.hash,
-            geminiFileId: item.geminiFile?.fileId,
-            geminiFileUri: item.geminiFile?.fileUri,
-            geminiFileMimeType: item.geminiFile?.mimeType,
-          },
-        });
-        try {
-          await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
-            method: 'POST',
-            body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
-          });
-        } catch {}
-      } catch (e) {
-        console.error('Finalize failed for version:', e);
-        throw e;
-      }
-    } else {
-      console.log('🔍 Creating new document with data:', {
-        title: newDoc.title,
-        folderPath: newDoc.folderPath,
-        type: newDoc.type
-      });
-      const created = await addDocument(newDoc);
-      console.log('✅ Document created successfully:', created);
-      console.log('📋 Created document ID:', created?.id);
-      console.log('📋 Created document keys:', Object.keys(created || {}));
-
-      // Validate that we have the required document ID
-      if (!created || !created.id) {
-        throw new Error(`Document creation failed: no ID returned. Created object: ${JSON.stringify(created)}`);
+        await refresh();
+      } catch (error) {
+        console.warn('Failed to refresh documents after save:', error);
       }
 
-      // Finalize file info for created row
-      try {
-        const orgId = getApiContext().orgId || '';
-        console.log('🔍 Finalizing upload for document:', created.id);
-        await apiFetch(`/orgs/${orgId}/uploads/finalize`, {
-          method: 'POST',
-          body: {
-            documentId: created.id,
-            storageKey: item.storageKey,
-            fileSizeBytes: item.file.size,
-            mimeType: item.file.type || 'application/octet-stream',
-            contentHash: item.hash,
-            geminiFileId: item.geminiFile?.fileId,
-            geminiFileUri: item.geminiFile?.fileUri,
-            geminiFileMimeType: item.geminiFile?.mimeType,
-          },
-        });
-        // Save extraction JSON for preview fallback (optional)
-        try {
-          await apiFetch(`/orgs/${orgId}/documents/${created.id}/extraction`, {
-            method: 'POST',
-            body: { ocrText: item.extracted?.ocrText || '', metadata: item.extracted?.metadata || {} },
-          });
-        } catch (extractionError) {
-          console.warn('Failed to save extraction data (non-critical):', extractionError);
-          // This is non-critical, continue with the upload
-        }
-      } catch (uploadError) {
-        console.error('Critical upload error:', uploadError);
-        throw uploadError;
-      }
-    }
-    setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q));
-    toast({ title: 'Saved', description: `${item.file.name} stored.` });
-    
-    // Refresh documents to update sidebar count immediately
-    try {
-      await refresh();
-    } catch (error) {
-      console.warn('Failed to refresh documents after save:', error);
-    }
-    
-    // Check if this was the last item being processed, if so navigate to documents
-    if (!skipNavigation) {
-      const updatedQueue = queue.map((q, i) => i === index ? { ...q, status: 'success', locked: true } : q);
-      const hasMoreReady = updatedQueue.some(q => q.status === 'ready');
-      
-      if (!hasMoreReady) {
-        // No more items to process, navigate to documents folder
-        const dest = folderPath.length ? `?path=${encodeURIComponent(folderPath.join('/'))}` : '';
-        setTimeout(() => {
-          router.push(`/documents${dest}`);
-        }, 500); // Reduced delay for faster navigation
-      }
-    }
+      const remainingReady = nextQueueSnapshot.some(q => q.status === 'ready' && !q.locked);
+      const effectivePath = Array.isArray(savedDoc?.folderPath) && savedDoc.folderPath.length > 0
+        ? savedDoc.folderPath.filter(Boolean)
+        : currentFolderPath.filter(Boolean);
+
+      return { path: effectivePath, hasMoreReady: remainingReady };
     } catch (error) {
       console.error('Document save error:', error);
       setQueue(prev => prev.map((q, i) => i === index ? { ...q, status: 'error', note: 'Save failed', locked: false } : q));
-      toast({ 
-        title: 'Save Failed', 
-        description: `Failed to save ${item.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`, 
-        variant: 'destructive' 
+      toast({
+        title: 'Save Failed',
+        description: `Failed to save ${item.file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: 'destructive'
       });
+      return null;
     }
   };
 
@@ -993,7 +1010,7 @@ function UploadContent() {
                           <div className="w-40"><Progress value={item.progress} /></div>
                           <div className="flex items-center gap-2">
                             {item.status === 'idle' && !isProcessingAll && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
-                            {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
+                            {item.status === 'ready' && <Button size="sm" onClick={() => handleSave(i)} disabled={item.locked}>Save</Button>}
                             {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => {
                               setQueue(prev => {
                                 const next = prev.filter((_, idx) => idx !== i);
@@ -1050,63 +1067,63 @@ function UploadContent() {
                                 <FileText className="h-3 w-3" />
                                 Title
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.title || item.form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.title} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, title: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <FileText className="h-3 w-3" />
                                 Filename
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.filename || item.form.filename} onChange={(e) => setForm({ ...form, filename: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.filename} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, filename: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <User className="h-3 w-3" />
                                 Sender
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.sender || item.form.sender} onChange={(e) => setForm({ ...form, sender: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.sender} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, sender: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <UserCheck className="h-3 w-3" />
                                 Receiver
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.receiver} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, receiver: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
                                 Document Date
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.documentDate} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, documentDate: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Tag className="h-3 w-3" />
                                 Document Type
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentType || item.form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.documentType} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, documentType: e.target.value } } : q))} />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <MessageSquare className="h-3 w-3" />
                                 Subject
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.subject} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, subject: e.target.value } } : q))} />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
                                 <MessageSquare className="h-3.5 w-3.5" />
                                 Description
                               </label>
-                              <textarea rows={3} className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm resize-none" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                              <textarea rows={3} className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm resize-none" value={item.form.description} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, description: e.target.value } } : q))} />
                             </div>
                             <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
                                 <Bookmark className="h-3.5 w-3.5" />
                                 Category
                               </label>
-                              <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                              <UiSelect value={item.form?.category || 'General'} onValueChange={(value) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, category: value } } : q))}>
                                 <UiSelectTrigger className="mt-1 w-full">
                                   <UiSelectValue placeholder="Select category..." />
                                 </UiSelectTrigger>
@@ -1124,14 +1141,14 @@ function UploadContent() {
                                 <Hash className="h-3.5 w-3.5" />
                                 Keywords (comma)
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.keywords} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, keywords: e.target.value } } : q))} />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
                                 <Tag className="h-3.5 w-3.5" />
                                 Tags (comma)
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.tags} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, tags: e.target.value } } : q))} />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
@@ -1204,7 +1221,7 @@ function UploadContent() {
                         <div className="w-40"><Progress value={item.progress} /></div>
                         <div className="flex items-center gap-2">
                           {item.status === 'idle' && !isProcessingAll && <Button size="sm" onClick={() => processItem(i)} disabled={!!item.locked}>Process</Button>}
-                          {item.status === 'ready' && <Button size="sm" onClick={() => onDone(i)} disabled={item.locked}>Save</Button>}
+                          {item.status === 'ready' && <Button size="sm" onClick={() => handleSave(i)} disabled={item.locked}>Save</Button>}
                           {(item.status === 'success' || item.status === 'error') && <Button size="sm" variant="outline" onClick={() => setQueue(prev => prev.filter((_, idx) => idx !== i))}>Remove</Button>}
                         </div>
                       </div>
@@ -1217,8 +1234,8 @@ function UploadContent() {
                             </label>
                             <input
                               className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
-                              value={form.title || item.form.title}
-                              onChange={(e) => setForm({ ...form, title: e.target.value })}
+                              value={item.form.title}
+                              onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, title: e.target.value } } : q))}
                               placeholder="Enter document title..."
                             />
                           </div>
@@ -1229,8 +1246,8 @@ function UploadContent() {
                             </label>
                             <input
                               className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
-                              value={form.filename || item.form.filename}
-                              onChange={(e) => setForm({ ...form, filename: e.target.value })}
+                              value={item.form.filename}
+                              onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, filename: e.target.value } } : q))}
                               placeholder="Enter filename..."
                             />
                           </div>
@@ -1241,8 +1258,8 @@ function UploadContent() {
                             </label>
                             <input
                               className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm"
-                              value={form.sender || item.form.sender}
-                              onChange={(e) => setForm({ ...form, sender: e.target.value })}
+                              value={item.form.sender}
+                              onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, sender: e.target.value } } : q))}
                               placeholder="Who sent this document?"
                             />
                           </div>
@@ -1251,35 +1268,35 @@ function UploadContent() {
                               <UserCheck className="h-3 w-3" />
                               Receiver
                             </label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.receiver || item.form.receiver} onChange={(e) => setForm({ ...form, receiver: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.receiver} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, receiver: e.target.value } } : q))} />
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
                               Document Date
                             </label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.documentDate || item.form.documentDate} onChange={(e) => setForm({ ...form, documentDate: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.documentDate} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, documentDate: e.target.value } } : q))} />
                         </div>
                         <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <MessageSquare className="h-3 w-3" />
                             Subject
                           </label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.subject || item.form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.subject} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, subject: e.target.value } } : q))} />
                         </div>
                         <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <MessageSquare className="h-3 w-3" />
                             Description
                           </label>
-                            <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={form.description || item.form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                            <textarea rows={3} className="mt-1 rounded-md border bg-background p-2 w-full" value={item.form.description} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, description: e.target.value } } : q))} />
                         </div>
                         <div>
                             <label className="text-xs text-muted-foreground flex items-center gap-1">
                               <Bookmark className="h-3 w-3" />
                             Category
                           </label>
-                          <UiSelect value={form.category || item.form?.category || 'General'} onValueChange={(value) => setForm({ ...form, category: value })}>
+                          <UiSelect value={item.form?.category || 'General'} onValueChange={(value) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, category: value } } : q))}>
                               <UiSelectTrigger className="mt-1 w-full">
                               <UiSelectValue placeholder="Select category..." />
                             </UiSelectTrigger>
@@ -1294,11 +1311,11 @@ function UploadContent() {
                         </div>
                         <div>
                             <label className="text-xs text-muted-foreground">Keywords (comma)</label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.keywords || item.form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.keywords} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, keywords: e.target.value } } : q))} />
                         </div>
                         <div className="md:col-span-2">
                             <label className="text-xs text-muted-foreground">Tags (comma)</label>
-                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={form.tags || item.form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                            <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.tags} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, tags: e.target.value } } : q))} />
                         </div>
 
                         {/* Linking Options */}

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Shield, RefreshCw, ExternalLink } from 'lucide-react';
+import { Shield, RefreshCw, ExternalLink, LogOut } from 'lucide-react';
 import { apiFetch, getApiContext } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -23,7 +23,7 @@ export function IpBlockedPage() {
   const [retryCount, setRetryCount] = useState(0);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const MAX_RETRIES = 3;
-  const { bootstrapData } = useAuth();
+  const { bootstrapData, signOut } = useAuth();
   const router = useRouter();
 
   const checkIpAccess = React.useCallback(async () => {
@@ -196,6 +196,10 @@ export function IpBlockedPage() {
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Contact Support
               </a>
+            </Button>
+            <Button onClick={signOut} variant="secondary" className="flex-1">
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign Out
             </Button>
           </div>
 

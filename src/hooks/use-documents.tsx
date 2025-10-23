@@ -37,6 +37,7 @@ type DocumentsContextValue = {
   linkAsNewVersion: (baseId: string, draft: Partial<StoredDocument>) => Promise<StoredDocument>;
   unlinkFromVersionGroup: (id: string) => Promise<void>;
   setCurrentVersion: (id: string) => Promise<void>;
+  ensureFolderMetadata: (path: string[]) => Promise<void>;
 };
 
 const DocumentsContext = createContext<DocumentsContextValue | undefined>(undefined);
@@ -71,6 +72,8 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
   const [hasLoadedAll, setHasLoadedAll] = useState(false);
   const loadingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingFolderFetchesRef = useRef<Set<string>>(new Set());
+  const fetchedFolderPathsRef = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     const orgId = getOrgId();
@@ -78,6 +81,10 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     if (!orgId || loadingRef.current) {
       return;
     }
+
+    fetchedFolderPathsRef.current.clear();
+    pendingFolderFetchesRef.current.clear();
+    setFolderMetadata(new Map());
 
     // Cancel any previous request
     if (abortControllerRef.current) {
@@ -144,6 +151,8 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
           });
           return newMap;
         });
+        fetchedFolderPathsRef.current.add('__root__');
+        fetchedFolderPathsRef.current.add('__root__');
 
         const persisted = (root || []).map(r => r.fullPath);
         const merged = new Set(nextFolders.map(p => p.join('/')));
@@ -375,39 +384,13 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
 
   const getDocumentById = useCallback((id: string) => documents.find(d => d.id === id), [documents]);
 
-  const clearAll = useCallback(() => { setDocuments([]); setFolders([]); }, []);
-
-  const createFolder = useCallback(async (parentPath: string[], name: string) => {
-    const clean = name.trim(); 
-    if (!clean) throw new Error('Folder name cannot be empty');
-    const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
-    
-    try {
-      // Only send departmentId if explicitly selected by user
-      // Let backend determine appropriate department for the user
-      const body: any = { parentPath, name: clean };
-      if (selectedDepartmentId) {
-        body.departmentId = selectedDepartmentId;
-        console.log(`Creating folder with explicit department: ${selectedDepartmentId}`);
-      } else {
-        console.log('Creating folder without explicit department - backend will determine');
-      }
-      
-      const result = await apiFetch(`/orgs/${orgId}/folders`, { 
-        method: 'POST', 
-        body 
-      });
-      
-      // Update local state
-      const newPath = result.fullPath;
-      setFolders(prev => (prev.some(p => JSON.stringify(p) === JSON.stringify(newPath)) ? prev : [...prev, newPath]));
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to create folder:', error);
-      throw error;
-    }
-  }, [getOrgId, selectedDepartmentId]);
+  const clearAll = useCallback(() => { 
+    setDocuments([]); 
+    setFolders([]); 
+    setFolderMetadata(new Map());
+    fetchedFolderPathsRef.current.clear();
+    pendingFolderFetchesRef.current.clear();
+  }, []);
 
   const listFolders = useCallback((path: string[]) => folders.filter(p => p.length === path.length + 1 && path.every((seg, i) => seg === p[i])), [folders]);
 
@@ -415,6 +398,74 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     const pathKey = path.join('/');
     return folderMetadata.get(pathKey);
   }, [folderMetadata]);
+
+  const ensureFolderMetadata = useCallback(async (path: string[] = []) => {
+    const orgId = getOrgId();
+    if (!orgId) return;
+
+    const key = path.length > 0 ? path.join('/') : '__root__';
+    if (fetchedFolderPathsRef.current.has(key) || pendingFolderFetchesRef.current.has(key)) {
+      return;
+    }
+
+    pendingFolderFetchesRef.current.add(key);
+    try {
+      const query = path.length > 0 ? `?path=${encodeURIComponent(path.join('/'))}` : '?path=';
+      const rows = await apiFetch<{ name: string; fullPath: string[]; departmentId?: string; departmentName?: string; id?: string; title?: string }[]>(`/orgs/${orgId}/folders${query}`);
+      setFolderMetadata(prev => {
+        const newMap = new Map(prev);
+        (rows || []).forEach(folder => {
+          const childKey = folder.fullPath.join('/');
+          newMap.set(childKey, {
+            departmentId: folder.departmentId,
+            departmentName: folder.departmentName,
+            id: folder.id,
+            title: folder.title
+          });
+        });
+        return newMap;
+      });
+      fetchedFolderPathsRef.current.add(key);
+    } catch (error) {
+      console.error('Failed to load folder metadata for path', path.join('/'), error);
+    } finally {
+      pendingFolderFetchesRef.current.delete(key);
+    }
+  }, [getOrgId]);
+
+  const createFolder = useCallback(async (parentPath: string[], name: string) => {
+    const clean = name.trim();
+    if (!clean) throw new Error('Folder name cannot be empty');
+    const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
+
+    try {
+      const body: any = { parentPath, name: clean };
+      if (selectedDepartmentId) {
+        body.departmentId = selectedDepartmentId;
+        console.log(`Creating folder with explicit department: ${selectedDepartmentId}`);
+      } else {
+        console.log('Creating folder without explicit department - backend will determine');
+      }
+
+      const result = await apiFetch(`/orgs/${orgId}/folders`, {
+        method: 'POST',
+        body
+      });
+
+      const newPath = result.fullPath;
+      setFolders(prev => (prev.some(p => JSON.stringify(p) === JSON.stringify(newPath)) ? prev : [...prev, newPath]));
+
+      const parentKey = parentPath.length > 0 ? parentPath.join('/') : '__root__';
+      fetchedFolderPathsRef.current.delete(parentKey);
+      pendingFolderFetchesRef.current.delete(parentKey);
+      await ensureFolderMetadata(parentPath);
+
+      return result;
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      throw error;
+    }
+  }, [getOrgId, selectedDepartmentId, ensureFolderMetadata]);
 
   const deleteFolder = useCallback(async (path: string[], mode: 'move_to_root' | 'delete_all' = 'move_to_root') => {
     const orgId = getOrgId(); if (!orgId) throw new Error('No organization selected');
@@ -430,6 +481,14 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
         // Remove the exact path and any paths that start with it
         return !(p.length >= path.length && path.every((seg, i) => seg === p[i]));
       }));
+
+      const pathKey = path.length > 0 ? path.join('/') : '__root__';
+      fetchedFolderPathsRef.current.delete(pathKey);
+
+      const parentPath = path.slice(0, -1);
+      const parentKey = parentPath.length > 0 ? parentPath.join('/') : '__root__';
+      fetchedFolderPathsRef.current.delete(parentKey);
+      pendingFolderFetchesRef.current.delete(parentKey);
       
       // If documents were moved to root, refresh to update their paths
       if (mode === 'move_to_root' && result.documentsHandled > 0) {
@@ -443,13 +502,15 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
           JSON.stringify(d.folderPath || []) !== JSON.stringify(path)
         ));
       }
+
+      await ensureFolderMetadata(parentPath);
       
       return result;
     } catch (error) {
       console.error('Failed to delete folder:', error);
       throw error;
     }
-  }, [getOrgId, refresh, documents]);
+  }, [getOrgId, refresh, documents, ensureFolderMetadata]);
 
   const getDocumentsInPath = useCallback((path: string[]) => documents.filter(d => 
     JSON.stringify(d.folderPath || []) === JSON.stringify(path) && d.type !== 'folder'
@@ -511,7 +572,8 @@ export function DocumentsProvider({ children }: { children: React.ReactNode }) {
     linkAsNewVersion,
     unlinkFromVersionGroup,
     setCurrentVersion,
-  }), [documents, folders, folderMetadata, isLoading, hasLoadedAll, refresh, loadAllDocuments, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getFolderMetadata, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion]);
+    ensureFolderMetadata,
+  }), [documents, folders, folderMetadata, isLoading, hasLoadedAll, refresh, loadAllDocuments, addDocument, removeDocument, removeDocuments, updateDocument, getDocumentById, clearAll, createFolder, deleteFolder, listFolders, getFolderMetadata, getDocumentsInPath, moveDocumentsToPath, linkAsNewVersion, unlinkFromVersionGroup, setCurrentVersion, ensureFolderMetadata]);
 
   return <DocumentsContext.Provider value={value}>{children}</DocumentsContext.Provider>;
 }

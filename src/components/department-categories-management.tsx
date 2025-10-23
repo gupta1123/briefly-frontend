@@ -214,16 +214,6 @@ export default function DepartmentCategoriesManagement({ departments }: Departme
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Building2 className="w-6 h-6" />
-        <div>
-          <h2 className="text-2xl font-semibold">Department Categories</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage document categories for each department. Each team can have their own set of categories.
-          </p>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
         {departments.map((department) => (
           <DepartmentCategoriesProvider key={department.id} departmentId={department.id}>
