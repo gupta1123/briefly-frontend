@@ -303,7 +303,7 @@ export default function SettingsPage() {
         />
         <div className="px-4 md:px-6 min-h-0">
         <Tabs defaultValue="appearance" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-5 overflow-x-auto">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-6 overflow-x-auto">
           <TabsTrigger value="appearance" className="text-xs md:text-sm">Personal</TabsTrigger>
           {isAdmin && <TabsTrigger value="general" className="text-xs md:text-sm">Organization</TabsTrigger>}
           {(isAdmin || isTeamLead || canManageTeamMembers) && <TabsTrigger value="teams" className="text-xs md:text-sm">Teams</TabsTrigger>}

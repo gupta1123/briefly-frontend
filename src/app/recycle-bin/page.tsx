@@ -99,8 +99,11 @@ type BinDoc = {
   title?: string | null;
   filename?: string | null;
   deletedAt?: string | null;
+  deleted_at?: string | null;
   purgeAfter?: string | null;
+  purge_after?: string | null;
   departmentId?: string | null;
+  department_id?: string | null;
 };
 
 export default function RecycleBinPage() {
@@ -239,7 +242,8 @@ export default function RecycleBinPage() {
         ) : (
           <div className="space-y-4">
             {items.map((d) => {
-              const purgeDate = d.purgeAfter ? new Date(d.purgeAfter) : null;
+              const purgeDateString = d.purge_after || d.purgeAfter;
+              const purgeDate = purgeDateString ? new Date(purgeDateString) : null;
               const daysUntilPurge = purgeDate ? Math.ceil((purgeDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
               const isUrgent = daysUntilPurge !== null && daysUntilPurge <= 2;
               

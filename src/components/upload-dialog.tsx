@@ -123,6 +123,13 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
   const { folders, createFolder } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId } = useDepartments();
 
+  // Auto-select first department for system admins when no department is selected
+  React.useEffect(() => {
+    if (hasRoleAtLeast('systemAdmin') && !selectedDepartmentId && departments.length > 0) {
+      setSelectedDepartmentId(departments[0].id);
+    }
+  }, [hasRoleAtLeast, selectedDepartmentId, departments, setSelectedDepartmentId]);
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
@@ -336,11 +343,8 @@ export default function UploadDialog({ onNewDocument }: { onNewDocument: (doc: S
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">Department</span>
-                  {!selectedDepartmentId && (
-                    <span className="text-xs text-red-600 font-medium">Required</span>
-                  )}
                 </div>
-                <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)} required>
+                <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)}>
                   <UiSelectTrigger className="w-full">
                     <UiSelectValue placeholder="Select department" />
                   </UiSelectTrigger>

@@ -128,6 +128,13 @@ function UploadContent() {
   const { hasRoleAtLeast, hasPermission } = useAuth();
   const [folderPath, setFolderPath] = useState<string[]>([]);
   const searchParams = useSearchParams();
+
+  // Auto-select first department for system admins when no department is selected
+  React.useEffect(() => {
+    if (hasRoleAtLeast('systemAdmin') && !selectedDepartmentId && departments.length > 0) {
+      setSelectedDepartmentId(departments[0].id);
+    }
+  }, [hasRoleAtLeast, selectedDepartmentId, departments, setSelectedDepartmentId]);
   
   useEffect(() => {
     const p = searchParams?.get('path');
@@ -839,7 +846,7 @@ function UploadContent() {
                 {hasRoleAtLeast('systemAdmin') && folderPath.length === 0 && (
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-muted-foreground font-medium">Department</span>
-                    <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)} required>
+                    <UiSelect value={selectedDepartmentId || undefined as any} onValueChange={(v) => setSelectedDepartmentId(v)}>
                       <UiSelectTrigger className="w-[180px] h-8 text-xs">
                         <UiSelectValue placeholder="Select department" />
                       </UiSelectTrigger>
@@ -847,9 +854,6 @@ function UploadContent() {
                         {departments.map(d => (<UiSelectItem key={d.id} value={d.id}>{d.name}</UiSelectItem>))}
                       </UiSelectContent>
                     </UiSelect>
-                    {!selectedDepartmentId && (
-                      <span className="text-xs text-red-600 font-medium">Required</span>
-                    )}
                   </div>
                 )}
               </div>
@@ -1097,13 +1101,6 @@ function UploadContent() {
                               </label>
                               <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.documentDate} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, documentDate: e.target.value } } : q))} />
                             </div>
-                            <div>
-                              <label className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Tag className="h-3 w-3" />
-                                Document Type
-                              </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.documentType} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, documentType: e.target.value } } : q))} />
-                            </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1">
                                 <MessageSquare className="h-3 w-3" />
@@ -1143,12 +1140,17 @@ function UploadContent() {
                               </label>
                               <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.keywords} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, keywords: e.target.value } } : q))} />
                             </div>
-                            <div className="md:col-span-2">
+                            <div>
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
                                 <Tag className="h-3.5 w-3.5" />
-                                Tags (comma)
+                                Tags
                               </label>
-                              <input className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" value={item.form.tags} onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, tags: e.target.value } } : q))} />
+                              <input 
+                                className="mt-1.5 rounded-lg border border-border/60 bg-background hover:border-border focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all p-2.5 w-full text-sm" 
+                                placeholder="Enter tags separated by commas (e.g., invoice, payment, 2024)"
+                                value={item.form.tags} 
+                                onChange={(e) => setQueue(prev => prev.map((q, idx) => idx === i ? { ...q, form: { ...q.form!, tags: e.target.value } } : q))} 
+                              />
                             </div>
                             <div className="md:col-span-2">
                               <label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
