@@ -393,6 +393,11 @@ export default function TestAgentEnhancedPage() {
     }
   }, [messages]);
 
+  // Ensure a fresh sessionId per page load
+  useEffect(() => {
+    setSessionId(crypto.randomUUID());
+  }, []);
+
   const handleSubmit = async (input: string, overrideContext?: ChatContext) => {
     if (!input.trim() || isLoading) return;
 
