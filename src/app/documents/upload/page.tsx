@@ -125,9 +125,26 @@ function UploadContent() {
   const [extracted, setExtracted] = useState<Extracted | null>(null);
   const { folders, createFolder } = useDocuments();
   const [preferredBaseId, setPreferredBaseId] = useState<string | null>(null);
-  const { hasRoleAtLeast, hasPermission } = useAuth();
+  const { hasRoleAtLeast, hasPermission, bootstrapData } = useAuth();
   const [folderPath, setFolderPath] = useState<string[]>([]);
   const searchParams = useSearchParams();
+  
+  // Check page permission with fallback to functional permission for backward compatibility
+  const permissions = bootstrapData?.permissions || {};
+  const canAccessUploadPage = permissions['pages.upload'] !== false; // Default true if not set
+  const hasCreatePermission = hasPermission('documents.create');
+  const hasAccess = canAccessUploadPage || hasCreatePermission;
+  
+  // Redirect if no access
+  useEffect(() => {
+    if (bootstrapData && !hasAccess) {
+      router.push('/documents');
+    }
+  }, [hasAccess, bootstrapData, router]);
+  
+  if (bootstrapData && !hasAccess) {
+    return <AccessDenied message="You don't have permission to access the upload page." />;
+  }
 
   // Auto-select first department for system admins when no department is selected
   React.useEffect(() => {
@@ -798,10 +815,10 @@ function UploadContent() {
   };
 
   // Check if user has permission to create documents
-  const canCreateDocuments = hasPermission('documents.create');
+  // Use the hasAccess check from above (which includes page permission and functional permission)
   
   // Show access restricted message if user doesn't have upload permission
-  if (!canCreateDocuments) {
+  if (!hasAccess) {
     return (
       <AppLayout>
         <AccessDenied

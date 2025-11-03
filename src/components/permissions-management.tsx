@@ -89,6 +89,53 @@ const PERMISSION_CATEGORIES = [
         userFriendly: true
       }
     ]
+  },
+  {
+    title: 'Page Access',
+    description: 'Control which pages users can see and access',
+    permissions: [
+      {
+        key: 'pages.upload',
+        label: 'Upload Document Page',
+        description: 'Can access the upload document page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.documents',
+        label: 'Folders & Documents Page',
+        description: 'Can access the folders and documents browsing page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.activity',
+        label: 'Activity Page',
+        description: 'Can access the activity and audit logs page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.recycle_bin',
+        label: 'Recycle Bin Page',
+        description: 'Can access the recycle bin to view deleted documents',
+        userFriendly: true
+      },
+      {
+        key: 'pages.chat',
+        label: 'Chat Bot Page',
+        description: 'Can access the chat/chatbot page',
+        userFriendly: true
+      },
+      {
+        key: 'dashboard.view',
+        label: 'Dashboard View Level',
+        description: 'Controls which dashboard view is shown. "admin" shows org-wide stats and team cards. "regular" shows role-based dashboard.',
+        userFriendly: true,
+        customType: 'select',
+        options: [
+          { value: 'regular', label: 'Regular Dashboard (Role-based)' },
+          { value: 'admin', label: 'Admin Dashboard (Org-wide)' }
+        ]
+      }
+    ]
   }
 ];
 
@@ -101,7 +148,8 @@ const HIDDEN_PERMISSIONS = [
   'documents.bulk_delete',
   'storage.upload',
   'search.semantic',
-  'departments.read'
+  'departments.read',
+  'chat.save_sessions'
 ];
 
 type OrgRole = {
@@ -110,7 +158,7 @@ type OrgRole = {
   name: string;
   description?: string | null;
   is_system: boolean;
-  permissions: Record<string, boolean>;
+  permissions: Record<string, boolean | string>;  // Allow string for dashboard.view
 };
 
 type Department = { id: string; name: string };
@@ -134,8 +182,8 @@ export default function PermissionsManagement() {
   // Override tab state
   const [selectedUser, setSelectedUser] = React.useState<string>('');
   const [selectedDept, setSelectedDept] = React.useState<string>('');
-  const [overrides, setOverrides] = React.useState<Record<string, boolean>>({});
-  const [effective, setEffective] = React.useState<Record<string, boolean>>({});
+  const [overrides, setOverrides] = React.useState<Record<string, boolean | string>>({});
+  const [effective, setEffective] = React.useState<Record<string, boolean | string>>({});
   const [deptMembershipWarning, setDeptMembershipWarning] = React.useState<string>('');
 
   // Loading states
@@ -282,7 +330,7 @@ export default function PermissionsManagement() {
     }
   }, [selectedUser, users, departments]);
 
-  const onRoleToggle = async (role: OrgRole, permKey: string, value: boolean) => {
+  const onRoleToggle = async (role: OrgRole, permKey: string, value: boolean | string) => {
     const nextPerms = { ...(role.permissions || {}), [permKey]: value };
     await apiFetch(`/orgs/${orgId}/roles/${encodeURIComponent(role.key)}`, {
       method: 'PATCH',
@@ -293,7 +341,7 @@ export default function PermissionsManagement() {
     await refreshPermissions();
   };
 
-  const onOverrideToggle = (key: string, val: boolean) => {
+  const onOverrideToggle = (key: string, val: boolean | string) => {
     setOverrides(prev => ({ ...prev, [key]: val }));
   };
 
@@ -355,8 +403,8 @@ export default function PermissionsManagement() {
     }
   };
 
-  const getVisiblePermissions = (rolePermissions: Record<string, boolean>) => {
-    const visible: Record<string, boolean> = {};
+  const getVisiblePermissions = (rolePermissions: Record<string, boolean | string>) => {
+    const visible: Record<string, boolean | string> = {};
     Object.entries(rolePermissions).forEach(([key, value]) => {
       if (!HIDDEN_PERMISSIONS.includes(key)) {
         visible[key] = value;
@@ -522,23 +570,54 @@ export default function PermissionsManagement() {
                                   <div className="text-xs text-muted-foreground">{category.description}</div>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                  {categoryPermissions.map(p => (
-                                    <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-                                      <div className="flex items-center gap-3">
-                                        <Checkbox
-                                          checked={!!role.permissions?.[p.key]}
-                                          onCheckedChange={(v:any) => onRoleToggle(role, p.key, !!v)}
-                                        />
-                                        <div>
-                                          <div className="text-sm font-medium">{p.label}</div>
-                                          <div className="text-xs text-muted-foreground">{p.description}</div>
+                                  {categoryPermissions.map(p => {
+                                    // Handle dashboard.view as select dropdown
+                                    if (p.key === 'dashboard.view') {
+                                      const permValue = role.permissions?.[p.key];
+                                      // Handle both string and boolean values (for backward compatibility)
+                                      const currentValue = typeof permValue === 'string' 
+                                        ? permValue 
+                                        : (typeof permValue === 'boolean' && permValue 
+                                          ? 'admin'  // If true, treat as admin
+                                          : 'regular');  // Default to regular
+                                      return (
+                                        <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                                          <div className="flex-1">
+                                            <div className="text-sm font-medium mb-1">{p.label}</div>
+                                            <div className="text-xs text-muted-foreground mb-2">{p.description}</div>
+                                            <select
+                                              value={currentValue}
+                                              onChange={(e) => onRoleToggle(role, p.key, e.target.value)}
+                                              className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                                            >
+                                              {p.options?.map(opt => (
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                              ))}
+                                            </select>
+                                          </div>
                                         </div>
+                                      );
+                                    }
+                                    
+                                    // Regular boolean permission checkbox
+                                    return (
+                                      <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                                        <div className="flex items-center gap-3">
+                                          <Checkbox
+                                            checked={!!role.permissions?.[p.key]}
+                                            onCheckedChange={(v:any) => onRoleToggle(role, p.key, !!v)}
+                                          />
+                                          <div>
+                                            <div className="text-sm font-medium">{p.label}</div>
+                                            <div className="text-xs text-muted-foreground">{p.description}</div>
+                                          </div>
+                                        </div>
+                                        <Badge variant={role.permissions?.[p.key] ? "default" : "secondary"}>
+                                          {role.permissions?.[p.key] ? "Enabled" : "Disabled"}
+                                        </Badge>
                                       </div>
-                                      <Badge variant={role.permissions?.[p.key] ? "default" : "secondary"}>
-                                        {role.permissions?.[p.key] ? "Enabled" : "Disabled"}
-                                      </Badge>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </div>
                             );
@@ -653,6 +732,52 @@ export default function PermissionsManagement() {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                   {categoryPermissions.map(p => {
+                                    // Handle dashboard.view as select dropdown
+                                    if (p.key === 'dashboard.view') {
+                                      const hasOverride = overrides.hasOwnProperty(p.key);
+                                      const effectiveValueRaw = effective.hasOwnProperty(p.key) ? effective[p.key] : 'regular';
+                                      // Handle both string and boolean values (for backward compatibility)
+                                      const effectiveValue = typeof effectiveValueRaw === 'string' 
+                                        ? effectiveValueRaw 
+                                        : (typeof effectiveValueRaw === 'boolean' && effectiveValueRaw 
+                                          ? 'admin' 
+                                          : 'regular');
+                                      const overrideValueRaw = hasOverride ? overrides[p.key] : effectiveValue;
+                                      const overrideValue = typeof overrideValueRaw === 'string' 
+                                        ? overrideValueRaw 
+                                        : (typeof overrideValueRaw === 'boolean' && overrideValueRaw 
+                                          ? 'admin' 
+                                          : 'regular');
+                                      
+                                      return (
+                                        <div key={p.key} className="rounded-lg border bg-card p-3">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="min-w-0 flex-1">
+                                              <div className="text-sm font-medium truncate">{p.label}</div>
+                                              <div className="text-xs text-muted-foreground truncate">{p.description}</div>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs flex-shrink-0">
+                                              {hasOverride && (
+                                                <Badge variant="default">
+                                                  Override Active
+                                                </Badge>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <select
+                                            value={overrideValue}
+                                            onChange={(e) => onOverrideToggle(p.key, e.target.value)}
+                                            className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                                          >
+                                            {p.options?.map(opt => (
+                                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      );
+                                    }
+                                    
+                                    // Regular boolean permission
                                     const hasOverride = overrides.hasOwnProperty(p.key);
                                     const effectiveValue = effective.hasOwnProperty(p.key) ? !!effective[p.key] : false;
                                     const overrideValue = hasOverride ? !!overrides[p.key] : effectiveValue;

@@ -492,22 +492,42 @@ function getThemeColors(accentColor: string) {
 }
 
 function MainSections() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'systemAdmin';
+  const { user, bootstrapData } = useAuth();
+  const permissions = bootstrapData?.permissions || {};
+  
+  // Get dashboard permission level (defaults to role-based if not set)
+  const dashboardLevel = permissions['dashboard.view'] || getDefaultDashboardLevel(user?.role);
+  const hasAdminDashboard = dashboardLevel === 'admin';
+  
+  // For regular dashboard, show cards based on role
   const isTeamLead = user?.role === 'teamLead';
+  const showTeamLeadCards = !hasAdminDashboard && isTeamLead;
 
   return (
     <div className="space-y-6">
-      {/* Always show AdminStats (KPIs) for all users */}
+      {/* Always show AdminStats (KPIs) for all users - filtered by dashboard level */}
       <AdminStats />
 
-      {/* Show team cards for admins */}
-      {isAdmin && <AdminTeamCards />}
+      {/* Show team cards for admin dashboard OR orgAdmin role */}
+      {hasAdminDashboard && <AdminTeamCards />}
 
-      {/* Show member cards for team leads */}
-      {isTeamLead && <TeamLeadMemberCards />}
+      {/* Show member cards for team leads with regular dashboard */}
+      {showTeamLeadCards && <TeamLeadMemberCards />}
     </div>
   );
+}
+
+// Helper function to get default dashboard level based on role
+function getDefaultDashboardLevel(role?: string): string {
+  switch (role) {
+    case 'systemAdmin':
+    case 'orgAdmin':
+      return 'admin';
+    case 'teamLead':
+      return 'regular';
+    default:
+      return 'regular';
+  }
 }
 
 function HeaderWithIdentity() {

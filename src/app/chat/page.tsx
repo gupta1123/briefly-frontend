@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import AppLayout from '@/components/layout/app-layout';
+import { useAuth } from '@/hooks/use-auth';
+import { AccessDenied } from '@/components/access-denied';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -366,6 +368,20 @@ export default function TestAgentEnhancedPage() {
   const themeColors = getThemeColors(settings.accent_color);
   const hasUserMessage = messages.some(m => m.role === 'user');
   const { documents: allDocs, folders: allFolders, getFolderMetadata } = useDocuments();
+  const { bootstrapData } = useAuth();
+  
+  // Check page permission with fallback for backward compatibility
+  const permissions = bootstrapData?.permissions || {};
+  const canAccessChat = permissions['pages.chat'] !== false; // Default true if not set
+  
+  // Show access denied if no permission
+  if (!canAccessChat && bootstrapData) {
+    return (
+      <AppLayout>
+        <AccessDenied message="You don't have permission to access the chat page." />
+      </AppLayout>
+    );
+  }
   const folderOptions = allFolders
     .filter(p => p.length > 0)
     .map(p => {

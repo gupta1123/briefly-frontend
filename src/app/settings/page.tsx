@@ -888,7 +888,7 @@ export default function SettingsPage() {
                               {u.displayName}{u.email ? ` · ${u.email}` : ''}
                             </SelectItem>
                           ))}
-                          {bypassUsers.length === 0 && <SelectItem value="" disabled>No users found</SelectItem>}
+                          {bypassUsers.length === 0 && <SelectItem value="__no_users__" disabled>No users found</SelectItem>}
                         </SelectContent>
                       </Select>
                     </div>

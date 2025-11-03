@@ -14,7 +14,7 @@ type OrgRole = {
   name: string;
   description?: string | null;
   is_system: boolean;
-  permissions: Record<string, boolean>;
+  permissions: Record<string, boolean | string>;  // Allow string for dashboard.view
 };
 
 // User-friendly permission categories - hide technical details
@@ -90,6 +90,53 @@ const PERMISSION_CATEGORIES = [
         userFriendly: true
       }
     ]
+  },
+  {
+    title: 'Page Access',
+    description: 'Control which pages users can see and access',
+    permissions: [
+      {
+        key: 'pages.upload',
+        label: 'Upload Document Page',
+        description: 'Can access the upload document page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.documents',
+        label: 'Folders & Documents Page',
+        description: 'Can access the folders and documents browsing page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.activity',
+        label: 'Activity Page',
+        description: 'Can access the activity and audit logs page',
+        userFriendly: true
+      },
+      {
+        key: 'pages.recycle_bin',
+        label: 'Recycle Bin Page',
+        description: 'Can access the recycle bin to view deleted documents',
+        userFriendly: true
+      },
+      {
+        key: 'pages.chat',
+        label: 'Chat Bot Page',
+        description: 'Can access the chat/chatbot page',
+        userFriendly: true
+      },
+      {
+        key: 'dashboard.view',
+        label: 'Dashboard View Level',
+        description: 'Controls which dashboard view is shown. "admin" shows org-wide stats and team cards. "regular" shows role-based dashboard.',
+        userFriendly: true,
+        customType: 'select',
+        options: [
+          { value: 'regular', label: 'Regular Dashboard (Role-based)' },
+          { value: 'admin', label: 'Admin Dashboard (Org-wide)' }
+        ]
+      }
+    ]
   }
 ];
 
@@ -102,7 +149,8 @@ const HIDDEN_PERMISSIONS = [
   'documents.bulk_delete',
   'storage.upload',
   'search.semantic',
-  'departments.read'
+  'departments.read',
+  'chat.save_sessions'
 ];
 
 function groupBy<T, K extends string>(list: T[], getKey: (t: T) => K) {
@@ -137,7 +185,7 @@ export default function RolesManagement() {
     refresh();
   }, [refresh]);
 
-  const onToggle = async (role: OrgRole, permKey: string, value: boolean) => {
+  const onToggle = async (role: OrgRole, permKey: string, value: boolean | string) => {
     const orgId = getApiContext().orgId || '';
     const nextPerms = { ...(role.permissions || {}), [permKey]: value };
     await apiFetch(`/orgs/${orgId}/roles/${encodeURIComponent(role.key)}`, {
@@ -152,8 +200,8 @@ export default function RolesManagement() {
   const onDelete = async (_role: OrgRole) => {};
 
   // Filter permissions to only show user-friendly ones
-  const getVisiblePermissions = (rolePermissions: Record<string, boolean>) => {
-    const visible: Record<string, boolean> = {};
+  const getVisiblePermissions = (rolePermissions: Record<string, boolean | string>) => {
+    const visible: Record<string, boolean | string> = {};
     Object.entries(rolePermissions).forEach(([key, value]) => {
       if (!HIDDEN_PERMISSIONS.includes(key)) {
         visible[key] = value;
@@ -216,23 +264,54 @@ export default function RolesManagement() {
                           <div className="text-xs text-muted-foreground">{category.description}</div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {categoryPermissions.map(p => (
-                            <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-                              <div className="flex items-center gap-3">
-                                <Checkbox
-                                  checked={!!role.permissions?.[p.key]}
-                                  onCheckedChange={(v:any) => onToggle(role, p.key, !!v)}
-                                />
-                                <div>
-                                  <div className="text-sm font-medium">{p.label}</div>
-                                  <div className="text-xs text-muted-foreground">{p.description}</div>
+                          {categoryPermissions.map(p => {
+                            // Handle dashboard.view as select dropdown
+                            if (p.key === 'dashboard.view') {
+                              const permValue = role.permissions?.[p.key];
+                              // Handle both string and boolean values (for backward compatibility)
+                              const currentValue = typeof permValue === 'string' 
+                                ? permValue 
+                                : (typeof permValue === 'boolean' && permValue 
+                                  ? 'admin'  // If true, treat as admin
+                                  : 'regular');  // Default to regular
+                              return (
+                                <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium mb-1">{p.label}</div>
+                                    <div className="text-xs text-muted-foreground mb-2">{p.description}</div>
+                                    <select
+                                      value={currentValue}
+                                      onChange={(e) => onToggle(role, p.key, e.target.value)}
+                                      className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                                    >
+                                      {p.options?.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 </div>
+                              );
+                            }
+                            
+                            // Regular boolean permission checkbox
+                            return (
+                              <div key={p.key} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                                <div className="flex items-center gap-3">
+                                  <Checkbox
+                                    checked={!!role.permissions?.[p.key]}
+                                    onCheckedChange={(v:any) => onToggle(role, p.key, !!v)}
+                                  />
+                                  <div>
+                                    <div className="text-sm font-medium">{p.label}</div>
+                                    <div className="text-xs text-muted-foreground">{p.description}</div>
+                                  </div>
+                                </div>
+                                <Badge variant={!!role.permissions?.[p.key] ? "default" : "secondary"}>
+                                  {!!role.permissions?.[p.key] ? "Enabled" : "Disabled"}
+                                </Badge>
                               </div>
-                              <Badge variant={!!role.permissions?.[p.key] ? "default" : "secondary"}>
-                                {!!role.permissions?.[p.key] ? "Enabled" : "Disabled"}
-                              </Badge>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );

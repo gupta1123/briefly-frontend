@@ -63,22 +63,27 @@ function ThemeIcon({ icon: Icon, className = '' }: { icon: any; className?: stri
 function DocumentsPageContent() {
   const { documents, folders, listFolders, getFolderMetadata, getDocumentsInPath, createFolder, deleteFolder, removeDocument, updateDocument, moveDocumentsToPath, isLoading, loadAllDocuments, refresh, ensureFolderMetadata } = useDocuments();
   const { departments, selectedDepartmentId, setSelectedDepartmentId, loading: departmentsLoading } = useDepartments();
-  const { hasRoleAtLeast, hasPermission, isLoading: authLoading } = useAuth();
+  const { hasRoleAtLeast, hasPermission, isLoading: authLoading, bootstrapData } = useAuth();
   const searchParams = useSearchParams();
   
-  // Check if user has permission to read documents
+  // Check page permission with fallback to functional permission for backward compatibility
+  const permissions = bootstrapData?.permissions || {};
+  const canAccessDocumentsPage = permissions['pages.documents'] !== false; // Default true if not set
   const canReadDocuments = hasPermission('documents.read');
+  const hasAccess = canAccessDocumentsPage || canReadDocuments;
+  
+  // Check other permissions
   const canCreateDocuments = hasPermission('documents.create');
   const canUpdateDocuments = hasPermission('documents.update');
   const canDeleteDocuments = hasPermission('documents.delete');
   
-  // Prevent loading documents if user doesn't have read permission
+  // Prevent loading documents if user doesn't have access
   React.useEffect(() => {
-    if (!authLoading && !canReadDocuments) {
-      console.log('User does not have documents.read permission, skipping document load');
+    if (!authLoading && !hasAccess) {
+      console.log('User does not have access to documents page, skipping document load');
       return;
     }
-  }, [authLoading, canReadDocuments]);
+  }, [authLoading, hasAccess]);
   
   // Global debug: Log when departments vs documents are loaded
   React.useEffect(() => {

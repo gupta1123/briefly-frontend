@@ -107,9 +107,16 @@ type BinDoc = {
 };
 
 export default function RecycleBinPage() {
-  const { isAuthenticated, hasPermission } = useAuth();
+  const { isAuthenticated, hasPermission, bootstrapData } = useAuth();
   const [items, setItems] = useState<BinDoc[]>([]);
   const [loading, setLoading] = useState(false);
+  
+  // Check page permission with fallback to functional permissions for backward compatibility
+  const permissions = bootstrapData?.permissions || {};
+  const canAccessRecycleBin = permissions['pages.recycle_bin'] === true;
+  const canManageMembers = hasPermission('org.manage_members');
+  const canDeleteDocuments = hasPermission('documents.delete');
+  const hasAccess = canAccessRecycleBin || canManageMembers || canDeleteDocuments;
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,8 +132,17 @@ export default function RecycleBinPage() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) refresh();
-  }, [isAuthenticated, refresh]);
+    if (isAuthenticated && hasAccess) refresh();
+  }, [isAuthenticated, hasAccess, refresh]);
+  
+  // Show access denied if no permission
+  if (!hasAccess && bootstrapData) {
+    return (
+      <AppLayout>
+        <AccessDenied message="You don't have permission to access the recycle bin." />
+      </AppLayout>
+    );
+  }
 
   useEffect(() => {
     const handleUpdate = () => refresh();

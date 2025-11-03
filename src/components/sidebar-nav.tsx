@@ -30,10 +30,18 @@ const adminLinks = [
 
 export default function SidebarNav() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, bootstrapData } = useAuth();
   const isManager = user?.role === 'systemAdmin' || user?.role === 'teamLead';
   const isAdmin = user?.role === 'systemAdmin';
   const isOps = pathname?.startsWith('/ops');
+  
+  // Get page permissions from bootstrap data
+  const permissions = bootstrapData?.permissions || {};
+  const canUpload = permissions['pages.upload'] !== false; // Default to true if not explicitly false
+  const canViewDocuments = permissions['pages.documents'] !== false;
+  const canViewActivity = permissions['pages.activity'] !== false;
+  const canViewRecycleBin = permissions['pages.recycle_bin'] === true;
+  const canChat = permissions['pages.chat'] !== false; // Default to true
 
   if (isOps) {
     const opsLinks = [
@@ -75,7 +83,13 @@ export default function SidebarNav() {
         <SidebarGroupLabel className="text-sidebar-foreground/80 font-medium">Main</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {links.slice(0, 4).map(({ href, label, Icon, badge }: { href: string; label: string; Icon: any; badge?: string }) => (
+            {links.slice(0, 4).filter(({ href }) => {
+              // Filter links based on page permissions
+              if (href === '/documents/upload' && !canUpload) return false;
+              if (href === '/documents' && !canViewDocuments) return false;
+              if (href === '/audit' && !canViewActivity) return false;
+              return true;
+            }).map(({ href, label, Icon, badge }: { href: string; label: string; Icon: any; badge?: string }) => (
               <SidebarMenuItem key={href}>
                 <SidebarMenuButton
                   asChild
@@ -109,6 +123,9 @@ export default function SidebarNav() {
                 {(isAdmin ? adminLinks : links.slice(4)).filter(({ href }) => {
                   // Team leads should not see audit
                   if (!isAdmin && href === '/audit') return false;
+                  // Filter based on page permissions
+                  if (href === '/recycle-bin' && !canViewRecycleBin) return false;
+                  if (href === '/chat' && !canChat) return false;
                   return true;
                 }).map(({ href, label, Icon }) => (
                   <SidebarMenuItem key={href}>
