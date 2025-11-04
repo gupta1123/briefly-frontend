@@ -431,13 +431,13 @@ export default function PermissionsManagement() {
 
         <div className="flex-1 flex">
           {/* Left Sidebar */}
-          <div className="w-80 border-r bg-muted/30">
-            <TabsContent value="general" className="h-full m-0">
-              <div className="p-4">
-                <h3 className="font-semibold mb-3">Roles</h3>
-                <ScrollArea className="h-[500px]">
+          <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0">
+            <TabsContent value="general" className="h-full m-0 flex flex-col">
+              <div className="p-4 flex flex-col flex-1 min-h-0">
+                <h3 className="font-semibold mb-3 flex-shrink-0">Roles</h3>
+                <ScrollArea className="flex-1 min-h-0">
                   {rolesLoading ? (
-                    <div className="space-y-2">
+                    <div className="space-y-2 pr-4">
                       {[1, 2, 3, 4].map(i => (
                         <div key={i} className="p-3 rounded-lg border bg-card">
                           <Skeleton className="h-4 w-24 mb-1" />
@@ -446,7 +446,7 @@ export default function PermissionsManagement() {
                       ))}
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 pr-4">
                       {roles.map(role => (
                         <button
                           key={role.key}
@@ -467,12 +467,12 @@ export default function PermissionsManagement() {
               </div>
             </TabsContent>
 
-            <TabsContent value="override" className="h-full m-0">
-              <div className="p-4">
-                <h3 className="font-semibold mb-3">Users</h3>
-                <ScrollArea className="h-full max-h-[500px]">
+            <TabsContent value="override" className="h-full m-0 flex flex-col">
+              <div className="p-4 flex flex-col flex-1 min-h-0">
+                <h3 className="font-semibold mb-3 flex-shrink-0">Users</h3>
+                <ScrollArea className="flex-1 min-h-0">
                   {usersLoading ? (
-                    <div className="space-y-2">
+                    <div className="space-y-2 pr-4">
                       {[1, 2, 3, 4, 5].map(i => (
                         <div key={i} className="p-3 rounded-lg border bg-card">
                           <div className="flex items-center gap-2">
@@ -486,7 +486,7 @@ export default function PermissionsManagement() {
                       ))}
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 pr-4">
                       {users.map(user => (
                         <button
                           key={user.userId}
